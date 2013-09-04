@@ -1,0 +1,164 @@
+#summary 关于nginx的一些常用基本配置
+#labels Phase-Support
+
+== 基于 nginx 的一些笔记 ==
+记录下平常配置nginx的一些小笔记
+
+== nginx做proxy的正则表达配置 ==
+nginx 安装完成以后，删除默认的 website，进入 {{{ /etc/nginx/sites-enabled }}} 目录下面，创建  proxy.conf 文件  内容如下
+
+{{{
+server {
+	# web admin 
+	listen   8080 ; 
+	server_name  ~^user(.+)?\.host1\.flowme\.net$;
+	access_log  /var/log/nginx/admin.access.log;
+	proxy_set_header Host user$1.host1.flowme.net:8080;
+	location / {
+		proxy_pass http://192.168.1.$1:8080 ;
+	}
+
+}
+}}}
+
+以上表示基于端口的虚拟主机，监听 8080端口，对于请求的主机名，符合正则的表达式，则到 location / 目录下面请求。并把请求的 header 信息发送到被代理的主机上
+
+eg: 客户请求地址 user1.host1.flowme.net  则把请求发送到 192.168.1.1 这个机器上，如果请求 user45.host1.flowme.net 则把请求发送到 192.168.1.45
+
+==跳转==
+
+以下的配置是使用如何跳转
+
+当用户访问一个地址的时候,可以把这个地址跳转到另外一个地址上
+
+{{{
+server {
+        listen   80 ; 
+        server_name  localhost;
+        access_log  /var/log/nginx/access.log;
+	rewrite ^/(.*)$ https://www.unxmail.com/$1 permanent;
+}
+}}}
+
+==配置ssl===
+输入如下命令
+{{{
+cd /etc/nginx
+mkdir ssl
+cd ssl
+openssl genrsa -des3 -out server.key 1024
+openssl req -new -key server.key -out server.csr
+cp server.key server.key.org
+openssl rsa -in server.key.org -out server.key
+openssl x509 -req -days 365 -in server.csr -signkey server.key -out server.crt
+
+}}}
+
+生成好证书以后,在nginx的配置文件里面添加如下字段
+
+{{{
+server {
+    server_name YOUR_DOMAINNAME_HERE;
+    listen 443;
+    ssl on;
+    ssl_certificate /etc/nginx/ssl/server.crt;
+    ssl_certificate_key /etc/nginx/ssl/server.key;
+}
+}}}
+
+=== 做正向代理===
+伪装user-agent等，都可以在这里设置
+{{{
+server {
+        listen       80;
+	resolver        8.8.8.8;
+location / {
+			set $agent "Mozilla/5.0 (iPad; U; CPU OS 4_3_3 like Mac OS X; en-us) AppleWebKit/533.17.9 (KHTML, like Gecko) Version/5.0.2 Mobile/8J2 Safari/6533.18.5";
+			proxy_pass    $scheme://$host$request_uri;
+			proxy_set_header Host $http_host;
+			proxy_set_header Connection '';
+			proxy_set_header Proxy-Connection '' ;
+			proxy_set_header Accept-Charset '';
+			proxy_set_header Accept-Encoding '';
+			proxy_set_header Accept-Language '';
+			proxy_set_header Accept '';
+			proxy_set_header Pragma 'no-cache';
+			proxy_set_header Cache-Control 'no-cache';
+			#proxy_set_header If-Modified-Since '';
+			proxy_buffers   256 4k;
+			proxy_max_temp_file_size        0k;
+			proxy_set_header User-Agent $agent;
+        }
+}
+}}}
+
+== 设置目录或者网站的认证==
+
+* 首先生成密码文件
+用apache的htpasswd来创建密码。site_pass为密码文件
+格式为：
+{{{
+htpasswd -b -c site_pass username password
+}}}
+
+例如：基于整个网站的认证,auth_basic在php解释之前。
+{{{
+server {
+    listen       80;
+    server_name www.akii.org akii.org;
+    root  /www/akii;
+    index index.html index.htm index.php;
+ 
+    auth_basic "input you user name and  password";
+    auth_basic_user_file /usr/local/nginx/conf/vhost/nginx_passwd;
+ 
+    location ~ .php$ {
+        fastcgi_pass  127.0.0.1:9000;
+        fastcgi_index index.php;
+        include fastcgi_params;
+    }
+    location ~ /\.ht {
+         deny  all;
+    }
+    access_log /logs/akii.org_access.log main;
+}
+}}}
+
+* 针对目录的认证
+
+在一个单独的location中，并且在该location中嵌套一个解释php的location，否则php文件不会执行并且会被下载。auth_basic在嵌套的location之后。
+
+{{{
+server {
+    listen       80;
+    server_name www.akii.org akii.org;
+    root  /www/akii;
+    index index.html index.htm index.php;
+ 
+    location ~ ^/admin/.* {
+        location ~ \.php$ {
+            fastcgi_pass  127.0.0.1:9000;
+            fastcgi_index index.php;
+            include fastcgi_params;
+        }
+ 
+        auth_basic "auth";
+        auth_basic_user_file /usr/local/nginx/conf/vhost/auth/admin.pass;
+    }
+ 
+    location ~ .php$ {
+        fastcgi_pass  127.0.0.1:9000;
+        fastcgi_index index.php;
+        include fastcgi_params;
+    }
+ 
+    location ~ /\.ht {
+         deny  all;
+    }
+    access_log /logs/akii.org_access.log main;
+}
+}}}
+
+
+    这里有一个细节，就是{{{ location ~ ^/admin/.* {…}    }}}保护admin目录下的所有文件。
+如果你只设了/admin/ 那么直接输入{{{ /admin/index.php }}} 还是可以访问并且运行的。{{{  ^/admin/.* }}}  意为保护该目录下所有文件。当然，只需要一次认证。并不会每次请求或每请求一个文件都要认证一下。

@@ -1,0 +1,104 @@
+#summary proftpd的标准配置文件
+#labels Phase-Support
+
+=目的= 
+
+* 注意事项
+  #  Umask	000  022  (000表示用户创建文件的掩码 文件666-000=666,文件夹 777-000=777, 第二个022表示用户组的掩码权限)
+  #  禁止root登陆
+  #  在防火墙后面
+
+=在linux防火墙后面的配置=
+{{{
+
+modprobe ip_nat_ftp
+modprobe ip_conntrack
+modprobe ip_conntrack_ftp
+iptables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT
+
+
+# nat 后面的端口映射
+iptables -t nat -A POSTROUTING -d 目标ip -p tcp --dport 21 -j MASQUERADE
+iptables -t nat -A PREROUTING -d 本机ip -p tcp --dport 21 -j DNAT --to-dest 目标IP:21
+
+}}}
+
+= 配置文件 proftpd.conf =
+
+
+{{{
+# /etc/proftpd/proftpd.conf -- This is a basic ProFTPD configuration file.
+
+
+# Includes DSO modules
+#Include /etc/proftpd/modules.conf
+
+# LoadModule about nated
+LoadModule mod_dynmasq.c
+
+UseIPv6				off
+IdentLookups			off
+ServerName			"Debian"
+ServerType			standalone
+DeferWelcome			off
+
+MultilineRFC2228		on
+DefaultServer			on
+ShowSymlinks			on
+TimesGMT              off
+
+TimeoutNoTransfer		600
+TimeoutStalled			600
+TimeoutIdle			1200
+
+DisplayLogin                    welcome.msg
+DisplayChdir               	.message true
+ListOptions                	"-l"
+
+DenyFilter			\*.*/
+
+DefaultRoot			~
+RequireValidShell		off
+RootLogin                        off
+
+Port				21
+PassivePorts                  49152 65534
+
+# If your host was NATted, this option is useful in order to
+# allow passive tranfers to work. You have to use your public
+# address and opening the passive ports used on your firewall as well.
+# MasqueradeAddress		1.2.3.4
+
+# This is useful for masquerading address with dynamic IPs:
+# refresh any configured MasqueradeAddress directives every 8 hours
+<IfModule mod_dynmasq.c>
+# DynMasqRefresh 28800
+</IfModule>
+
+MaxInstances			5
+User				nobody
+Group				nogroup
+
+# Umask 022 is a good standard umask to prevent new files and dirs
+# (second parm) from being group and world writable.
+Umask				000  022
+AllowOverwrite			on
+
+AuthPAMConfig                   proftpd
+#AuthOrder                       mod_auth_pam.c* mod_auth_unix.c
+
+IdentLookups                    off
+UseReverseDNS                   off
+
+
+TransferLog /var/log/proftpd/xferlog
+SystemLog   /var/log/proftpd/proftpd.log
+
+}}}
+
+= Details =
+
+Add your content here.  Format your content with:
+  * Text in *bold* or _italic_
+  * Headings, paragraphs, and lists
+  * Automatic links to other wiki pages

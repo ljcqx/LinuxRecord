@@ -1,0 +1,102 @@
+#summary 快速安装lighttpd+php的脚本
+
+== 支持centos5 和centos6 32bits and 64bits ==
+
+{{{
+#!/bin/bash
+
+# check environment
+ARCH=`uname -i`
+VER=`lsb_release -r | awk '{print $2}' | awk -F "." '{print $1}'`
+yum install redhat-lsb -y
+
+cd /tmp
+echo "First check system ..."
+echo `lsb_release -r` $ARCH 
+
+# EPEL
+if [ "$VER" -eq 5 ];then
+    EPEL="http://mirrors.sohu.com/fedora-epel/${VER}/${ARCH}/epel-release-5-4.noarch.rpm"
+elif [ "$VER" -eq 6 ];then
+    EPEL="http://mirrors.sohu.com/fedora-epel/${VER}/${ARCH}/epel-release-6-7.noarch.rpm"
+else
+    echo "Not support System"
+	exit 1
+fi
+# RPMFORGE
+RPMFORGE="http://pkgs.repoforge.org/rpmforge-release/rpmforge-release-0.5.2-2.el5.rf.${ARCH}.rpm"
+
+echo $EPEL
+echo $RPMFORGE
+
+wget $EPEL -O epel-release.noarch.rpm
+wget $RPMFORGE -O rpmforge-release.rf.rpm
+
+# start
+echo "Start install rpm package"
+rpm -e epel-release
+rpm -e rpmforge-release
+yum clean all
+yum clean metadata
+rpm -vih epel-release.noarch.rpm
+rpm -vih rpmforge-release.rf.rpm
+yum makecache
+
+# remove some packgs
+if [ `rpm -qa | grep lighttpd | wc -l` -ge 1 ];then
+    echo "find lighttpd,remove it first"
+    yum remove lighttpd -y
+    mv /etc/lighttpd /etc/lighttpd.bak
+fi
+
+if [ `ls /usr/sbin/httpd | wc -l` -ge 0 ];then
+    /etc/init.d/httpd stop
+    chkconfig httpd off
+fi
+yum remove php* -y
+
+# install lighttpd
+yum install lighttpd lighttpd-fastcgi -y
+
+if [ "$VER" -eq 5 ];then
+    yum install php53 php53-mysql php53-odbc php53-mcrypt php53-gd php53-mbstring php53-xml -y
+else
+   yum install php php-mysql php-odbc php-mcrypt php-gd php-mbstring php-xml php-ZendFramework -y
+fi
+
+# config system
+
+# config spawn 
+echo 'OPTIONS="-u lighttpd -g lighttpd -S -M 0600 -C 2 -F 1 -p 9000 -a 127.0.0.1 -f /usr/bin/php-cgi"' >> /etc/sysconfig/spawn-fcgi
+
+# config lighttpd
+sed -i "s/server.use-ipv6/#server.use-ipv6/" /etc/lighttpd/lighttpd.conf
+sed -i "s/server.port = 80/server.port = 9876/" /etc/lighttpd/lighttpd.conf
+sed -i "s/server.max-connections = 1024/server.max-connections = 512/" /etc/lighttpd/lighttpd.conf
+echo 'include "conf.d/fastcgi.conf"' >> /etc/lighttpd/modules.conf
+cat >> /etc/lighttpd/conf.d/fastcgi.conf <<EOF
+fastcgi.server = (
+  ".php" => ((
+    "host" => "127.0.0.1",
+    "port" => "9000",
+  )))
+EOF
+
+
+chkconfig lighttpd on
+chkconfig spawn-fcgi on
+
+/etc/init.d/spawn-fcgi start
+/etc/init.d/lighttpd start
+
+# create dir
+mkdir -p /usr/local/pa/bin
+mkdir -p /usr/local/pa/etc
+
+# edit sudoers
+sed -i 's/^Defaults    requiretty/#Defaults    requiretty/g' /etc/sudoers
+echo '%lighttpd   ALL=(ALL)  NOPASSWD: ALL' >> /etc/sudoers
+
+chown -R lighttpd.lighttpd /var/lib/php/session
+
+}}}

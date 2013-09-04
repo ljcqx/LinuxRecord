@@ -1,0 +1,60 @@
+#summary mysql for centos6 最优化内存配置文件
+
+= Introduction =
+小内存使用此配置文件
+
+
+= 使用之前,需要先删除默认的数据库文件 =
+{{{
+rm -rf /var/lib/mysql
+}}}
+
+
+
+{{{
+[mysqld]
+port=3306
+datadir=/var/lib/mysql
+socket=/var/lib/mysql/mysql.sock
+user=mysql
+skip-external-locking
+
+key_buffer = 16K
+query_cache_limit = 256K
+query_cache_size = 4M
+max_allowed_packet = 1M
+table_cache = 8
+
+max_connections = 16
+thread_concurrency = 2
+
+sort_buffer_size = 64K
+read_buffer_size = 256K
+read_rnd_buffer_size = 256K
+net_buffer_length = 2K
+thread_stack = 64K
+
+skip-innodb
+
+[mysqldump]
+quick
+max_allowed_packet = 16M
+
+[mysql]
+no-auto-rehash
+
+[isamchk]
+key_buffer = 8M
+sort_buffer_size = 8M
+
+[myisamchk]
+key_buffer = 8M
+sort_buffer_size = 8M
+
+[mysqlhotcopy]
+interactive-timeout
+
+[mysqld_safe]
+log-error=/var/log/mysqld.log
+pid-file=/var/run/mysqld/mysqld.pid
+}}}

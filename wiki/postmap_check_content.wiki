@@ -1,0 +1,22 @@
+#summary 用postmap测试过滤是否起作用.
+
+= 介绍 =
+
+命令行参数如下
+
+
+{{{
+postmap -q - regexp:/etc/postfix/header_check <~/msg.txt
+
+}}}
+
+测试插入图片的方法
+
+[http://code.google.com/ http://code.google.com/images/code_sm.png]
+
+= Details =
+
+Add your content here.  Format your content with:
+  * Text in *bold* or _italic_
+  * Headings, paragraphs, and lists
+  * Automatic links to other wiki pages

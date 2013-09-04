@@ -1,0 +1,87 @@
+#summary 一个解析html的函数,可能用得上
+
+= Introduction =
+
+Add your content here.
+
+
+= Details =
+
+Add your content here.  Format your content with:
+  * Text in *bold* or _italic_
+  * Headings, paragraphs, and lists
+  * Automatic links to other wiki pages
+
+{{{
+#!/usr/bin/env python
+# coding=gbk
+from BeautifulSoup import BeautifulSoup as bfs
+import string
+import re
+import os
+import sys
+import urllib2
+
+
+
+def get_it_all(start_url=None):
+    #file_object = open('test.html')
+    if(start_url == None):
+        print 'error'
+        return None
+    response = urllib2.urlopen(start_url, timeout=10)
+    all_the_text = response.read()
+    try:
+        #all_the_text = file_object.read()
+        #print(all_the_text)
+        soup = bfs(all_the_text)
+        res = soup.findAll('table',width='885')
+        table_count = len(res)
+        for x in res[1:(table_count-1)]:
+            td = x.findAll('td',width="760")
+            url_string = td[0].contents[1]
+            td_count = len(td)
+            if(td_count == 1):
+                href = td[0].findAll('a')
+                sss = str(href[0])
+                url =  re.search('ID=\d{1,4}',sss).group()
+                get_torrent_url(url)
+    finally:
+        print None
+        #file_object.close()
+
+
+
+def get_torrent_url(id=None):
+    base_tonl = 'http://www.g.net/Article.asp?';
+    #print base_tonl + id
+    response = urllib2.urlopen(base_tonl + id, timeout=30)
+    page = response.read()
+    #f = file('detail.html','r')
+    http = 'http://www.google.info/Get.asp?Action=Download&'
+    soup = bfs(page)
+    res = soup.findAll('font',color='#0000ff')
+    if(len(res) > 0):
+        url = str(res[0])
+        down_url = re.search('Id=[\dA-Za-z]+',str(res[0])).group()
+        print http + down_url
+        
+        # start downlaod
+        download_torrent(http + down_url,down_url)
+    
+ 
+def download_torrent(url,id):
+    if (url == None):
+        return False
+    cmd = "wget --header='Referer: " + url + "' --post-data='" + id + "'  --header='User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10.8; rv:14.0) Gecko/20100101 Firefox/14.0.1' '" + url + "'" + " -O torrent/" + id[3:] + ".torrent"
+    print cmd
+    os.system(cmd)
+
+   
+if __name__ == '__main__':
+    if(len(sys.argv) == 1):
+        print 'Please give me a argv'
+        exit()
+    url = sys.argv[1]
+    get_it_all(url)
+}}}

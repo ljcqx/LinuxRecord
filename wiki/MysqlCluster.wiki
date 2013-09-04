@@ -1,0 +1,283 @@
+#summary mysql+keepalived 主主高可用集群配置
+
+= Introduction =
+
+介绍如何配置mysql的双机热备,任何一台挂掉,都不会影响另外一台,当然,如果一台挂掉以后,没有重新起来,而另外一台也挂掉,将导致整个挂掉.
+
+
+= Details =
+
+详细介绍了,如何配置两台高可用mysql集群,测试环境如下:
+  * 两台vm,系统都是centos6 64
+  * 两台vm的 eth0 ip 地址分别是: (master1) 172.16.200.31 (master2)172.16.200.32
+  * 两台vm均需要安装 keepalived ,虚拟的ip都是 172.16.200.30
+  * 客户连接的ip地址为 172.16.200.30
+  * 两台 mysql server 均充当 master 和 salve
+
+== 详细步骤 ==
+
+  * 安装基本的软件,以下操作,两台机完全一模一样,都需要做,yum 安装 keepalived 需要 epel 的源
+
+{{{
+yum install keepalived mysql-server -y
+}}}
+
+  * 开始配置mysql,以下需要在两台mysql server里面配置
+
+在/etc/my.cnf 文件中,{{{ [mysqld] }}}字段里面,添加如下
+{{{
+log-bin=mysql-bin
+server-id=1
+slave-skip-errors=all
+}}}
+
+slave-skip-errors 表示跳过错误,否则如果错误,则不能继续同步
+
+  * 开始配置mysql master1 172.16.200.31
+
+{{{
+# 创建用来同步的账号
+MySQL> grant replication slave on *.* to 'replication'@'%' identified by 'replication';  
+# 查看状态
+mysql> show master status;
++------------------+----------+--------------+------------------+
+| File             | Position | Binlog_Do_DB | Binlog_Ignore_DB |
++------------------+----------+--------------+------------------+
+| mysql-bin.000006 |      106 |              |                  |
++------------------+----------+--------------+------------------+
+1 row in set (0.00 sec)
+
+}}}
+
+  * 在master1 172.16.200.31 上,将 172.16.200.32 设为自己的主服务器
+
+{{{
+mysql> change master to master_host='172.16.200.32',master_user='replication',master_password='replication';
+Query OK, 0 rows affected (0.05 sec)  
+# 启动 slave
+mysql> start slave;  
+Query OK, 0 rows affected (0.00 sec)  
+# 查看 slave 状态
+ show slave status\G  
+*************************** 1. row ***************************  
+             Slave_IO_State: Waiting for master to send event  
+                Master_Host: 192.168.1.201  
+                Master_User: replication  
+                Master_Port: 3306  
+              Connect_Retry: 60  
+            Master_Log_File: MySQL-bin.000003  
+        Read_Master_Log_Pos: 374  
+             Relay_Log_File: MySQL-master2-relay-bin.000002  
+              Relay_Log_Pos: 235  
+      Relay_Master_Log_File: MySQL-bin.000003  
+           Slave_IO_Running: Yes  
+          Slave_SQL_Running: Yes  
+            Replicate_Do_DB:   
+        Replicate_Ignore_DB:   
+         Replicate_Do_Table:   
+     Replicate_Ignore_Table:   
+    Replicate_Wild_Do_Table:   
+Replicate_Wild_Ignore_Table:   
+                 Last_Errno: 0  
+                 Last_Error:   
+               Skip_Counter: 0  
+        Exec_Master_Log_Pos: 374  
+            Relay_Log_Space: 235  
+            Until_Condition: None  
+             Until_Log_File:   
+              Until_Log_Pos: 0  
+         Master_SSL_Allowed: No  
+         Master_SSL_CA_File:   
+         Master_SSL_CA_Path:   
+            Master_SSL_Cert:   
+          Master_SSL_Cipher:   
+             Master_SSL_Key:   
+      Seconds_Behind_Master: 0  
+1 row in set (0.00 sec) 
+}}}
+
+  * 将172.16.200.32 设为 172.16.200.31 的主服务器, 以下操作,针对 172.16.200.32
+
+{{{
+# 创建用户
+MySQL> grant replication slave on *.* to 'replication'@'%' identified by 'replication';  
+Query OK, 0 rows affected (0.00 sec)  
+     
+MySQL> show master status;  
++------------------+----------+--------------+------------------+  
+| File             | Position | Binlog_Do_DB | Binlog_Ignore_DB |  
++------------------+----------+--------------+------------------+  
+| mysql-bin.000003 |      374 |              |                  |   
++------------------+----------+--------------+------------------+  
+1 row in set (0.00 sec) 
+}}}
+
+  * 在master 2, 172.16.200.32 上，将 172.16.200.31 设为自己的主服务器
+
+{{{
+mysql >change master to master_host='172.16.200.31',master_user='replication',master_password='replication';
+Query OK, 0 rows affected (0.05 sec)  
+ 
+MySQL> start slave;  
+Query OK, 0 rows affected (0.00 sec)  
+ 
+MySQL> show slave status\G  
+*************************** 1. row ***************************  
+             Slave_IO_State: Waiting for master to send event  
+                Master_Host: 192.168.1.202  
+                Master_User: replication  
+                Master_Port: 3306  
+              Connect_Retry: 60  
+            Master_Log_File: MySQL-bin.000003  
+        Read_Master_Log_Pos: 374  
+             Relay_Log_File: MySQL-master1-relay-bin.000002  
+              Relay_Log_Pos: 235  
+      Relay_Master_Log_File: MySQL-bin.000003  
+           Slave_IO_Running: Yes  
+          Slave_SQL_Running: Yes  
+            Replicate_Do_DB:   
+        Replicate_Ignore_DB:   
+         Replicate_Do_Table:   
+     Replicate_Ignore_Table:   
+    Replicate_Wild_Do_Table:   
+Replicate_Wild_Ignore_Table:   
+                 Last_Errno: 0  
+                 Last_Error:   
+               Skip_Counter: 0  
+        Exec_Master_Log_Pos: 374  
+            Relay_Log_Space: 235  
+            Until_Condition: None  
+             Until_Log_File:   
+              Until_Log_Pos: 0  
+         Master_SSL_Allowed: No 
+         Master_SSL_CA_File:   
+         Master_SSL_CA_Path:   
+            Master_SSL_Cert:   
+          Master_SSL_Cipher:   
+             Master_SSL_Key:   
+      Seconds_Behind_Master: 0  
+1 row in set (0.00 sec) 
+}}}
+
+  * MySQL同步测试
+
+如上述均正确配置，现在任何一台MySQL上更新数据都会同步到另一台MySQL， 测试的方法就是登陆任何一台mysql,然后创建数据库,接着登陆另外一台数据库,查看是否已经同步
+
+== 配置 keepalived ==
+
+配置 keepalived ,也是采用 rpm yum 安装的方式,不采用自己编译的方法.安装完成以后,默认的配置文件在 {{{ /etc/keepalived }}} 目录下面.需要修改这个文件
+
+  * master1 keepalived.conf 文件内容如下
+
+{{{
+global_defs {
+    router_id 000
+}
+vrrp_script check_run {
+    script "/root/keepalived_check_mysql.sh"
+    interval 5
+}
+vrrp_sync_group VG1 {
+     group {
+        VI_1
+     }
+}
+vrrp_instance VI_1 {
+     state MASTER
+     interface eth0
+     virtual_router_id 88
+     priority 100
+     advert_int 1
+     nopreempt
+     authentication {
+         auth_type PASS
+         auth_pass 111
+     }
+     track_script {
+         check_run
+     }
+     virtual_ipaddress {
+         172.16.200.30
+     }
+}
+
+}}}
+
+  * {{{/root/keepalived_check_mysql.sh}}} 文件内容如下,这个文件主要是 keepalived 用来检查 mysql 服务器是否运行中,如果没有运行,则自动关闭 keepalived 服务进程.
+
+{{{
+#!/bin/bash
+MYSQL=/usr/bin/mysql
+MYSQL_HOST=localhost
+MYSQL_USER=root
+MYSQL_PASSWORD=
+CHECK_TIME=3
+#mysql  is working MYSQL_OK is 1 , mysql down MYSQL_OK is 0
+MYSQL_OK=1
+
+function check_mysql_helth (){
+	$MYSQL -h $MYSQL_HOST -u $MYSQL_USER -e "show status;" >/dev/null 2>&1
+	if [ $? = 0 ] ;then
+		MYSQL_OK=1
+	else
+		MYSQL_OK=0
+	fi
+	return $MYSQL_OK
+}
+
+while [ $CHECK_TIME -ne 0 ];do
+    let "CHECK_TIME -= 1"
+    check_mysql_helth
+	if [ $MYSQL_OK = 1 ] ; then
+		CHECK_TIME=0
+    exit 0
+fi
+
+if [ $MYSQL_OK -eq 0 ] &&  [ $CHECK_TIME -eq 0 ];then
+     /etc/init.d/keepalived stop
+	exit 1 
+fi
+sleep 1
+done
+}}}
+
+接着执行 {{{ chmod+x /root/keepalived_check_mysql.sh }}}
+
+  * 以下配置 master2  172.16.200.32,  keepalived 的配置文件同 master1 稍微有一点区别,就是 state 这里, master 为 BACKUP.
+详细的配置文件如下
+
+{{{
+global_defs {
+    router_id 000
+}
+vrrp_script check_run {
+    script "/root/keepalived_check_mysql.sh"
+    interval 5
+}
+vrrp_sync_group VG1 {
+     group {
+       VI_1 
+     }
+}
+vrrp_instance VI_1 {
+     state BACKUP
+     interface eth0
+     virtual_router_id 88
+     priority 80
+     advert_int 1
+     authentication {
+         auth_type PASS
+         auth_pass 111
+     }
+     track_script {
+         check_run
+     }
+     virtual_ipaddress {
+         172.16.200.30
+     }
+}
+}}}
+
+ * {{{/root/keepalived_check_mysql.sh}}} 文件内容跟 master1 的内容是一样的.
+
+  * 配置完成以后,分别启动 mysql 和 keepalived 的服务进程,如果没有报错,可以ping下 172.16.200.30,看看是否ok,如果ok,接着用mysql 客户端连接 172.16.200.30,连接成功以后, 关闭 任何一个 mysql 节点,测试数据库连接是否正常.

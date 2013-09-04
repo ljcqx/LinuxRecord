@@ -1,0 +1,124 @@
+#summary 关于apache 的一些配置笔记
+#labels Phase-Support
+
+= 关于本文 =
+
+介绍apahe2 的一些基本配置
+
+
+= 关于模块的一些理解 =
+
+ * 静态加载的模块不会显示在modules目录下，静态加载模块内嵌在系统里，如果想卸载该模块，Apache需要重新进行编译安装。 静态加载的方法是配置时指定启动哪些模块，语法是：{{{./configure --enable-deflate --prefix=/opt/http2 make make install ./bin/apachectl restart}}}
+
+ * 动态加载的模块都会显示在modules目录下，要想让这些模块起作用，还需要在主配置文件里装载目录下的这些模块，语法是：{{{LoadModule deflate_module modules/mod_deflate.so}}}
+
+ * 要想让模块起作用，无论是通过静态方式加载的模块，还是通过动态方式加载的模块，都需要在配置文件里添加相应配置信息。 区别是如下语法，动态加载的模块，在配置文件中只需要输入{{{<IfModule >......</IfModule>}}}里面的内容，但要是静态加载的模块，在配置文件中要保那对标记也写进配置文件
+
+ * 配置信息可以直接在主配置文件（httpd.conf) 中进行添加，也可以在子配置文件中进行添加；不同的是如果配置信息写在子配置文件中，在主配置文件里还需要加一条语句，声明主配置文件包括子配置信息，语法是：{{{ Include conf.d/*.conf }}} (声明主配置文件包括conf.d目录中的所有子配置文件里的信息）
+
+ * 静态加载的模块不会显示在modules目录下，静态加载模块内嵌在系统里，如果想卸载该模块，Apache需要重新进行编译安装。 静态加载的方法是配置时指定启动哪些模块，语法是：{{{./configure --enable-deflate --prefix=/opt/http2 make make install ./bin/apachectl restart}}}
+
+==开启或禁用apache2的模块==
+
+ * a2dismod modname   禁用某个模块
+ * a2enmod modname   启用某个模块
+ * apachectl -M  查看加载的模块
+
+== 附加一些模块的作用==
+
+{{{
+LoadModule auth_basic_module modules/mod_auth_basic.so            #基本认证模块
+LoadModule auth_digest_module modules/mod_auth_digest.so        #使用MD5的用户验证模块
+LoadModule authn_file_module modules/mod_authn_file.so            #使用文本文件的用户验证
+LoadModule authn_alias_module modules/mod_authn_alias.so        #在原有的验证方法上提供拓展的验证
+LoadModule authn_anon_module modules/mod_authn_anon.so            #允许匿名访问已验证的区域
+LoadModule authn_dbm_module modules/mod_authn_dbm.so            #使用数据库文件验证
+LoadModule authn_default_module modules/mod_authn_default.so        #认证的撤销模块
+LoadModule authz_host_module modules/mod_authz_host.so            #基于主机名（或IP）的组授权
+LoadModule authz_user_module modules/mod_authz_user.so            #用户授权
+LoadModule authz_owner_module modules/mod_authz_owner.so        #依照文件拥有者的授权
+LoadModule authz_groupfile_module modules/mod_authz_groupfile.so    #使用明文文件的组授权
+LoadModule authz_dbm_module modules/mod_authz_dbm.so            #使用数据库的组授权
+LoadModule authz_default_module modules/mod_authz_default.so        #授权的撤销模块
+LoadModule ldap_module modules/mod_ldap.so                #LDAP提供其它LADP的连接接和缓存服务模块
+LoadModule authnz_ldap_module modules/mod_authnz_ldap.so        #允许使用一个LDAP的目录来存放HTTP基本授权文件
+LoadModule include_module modules/mod_include.so            #服务器端解析HTML语法的模块
+LoadModule log_config_module modules/mod_log_config.so            #记录服务器请求日志
+LoadModule logio_module modules/mod_logio.so                #记录每个请求的I/O字节数
+LoadModule env_module modules/mod_env.so                #设置传递给CGI脚本和SSI页面的环境？
+LoadModule ext_filter_module modules/mod_ext_filter.so            #在递交给客户端以前通过外部程序发送相应本体
+LoadModule mime_magic_module modules/mod_mime_magic.so            #通过查看一个文件的一些内容判断MIME类别        
+LoadModule expires_module modules/mod_expires.so            #根据用户的特别设定来生成失效和隐藏控制的http头信息
+LoadModule deflate_module modules/mod_deflate.so            #传送给客户端以前压缩数据
+LoadModule headers_module modules/mod_headers.so            #定制响应和回复的HTTP头的内容    
+LoadModule usertrack_module modules/mod_usertrack.so            #在一个站点上跟踪用户的登录信息
+LoadModule setenvif_module modules/mod_setenvif.so            #允许经过客户编码请求来设定环境变量    
+LoadModule mime_module modules/mod_mime.so                #通过文件的一些属性判读MIME类型
+LoadModule dav_module modules/mod_dav.so                #基于WEB的创作和版本？
+LoadModule status_module modules/mod_status.so                #提供服务器运行信息
+LoadModule autoindex_module modules/mod_autoindex.so            #自动列出一个目录的索引表（类似于UNIX上的ls和DOS下的dir）
+LoadModule info_module modules/mod_info.so                #提供服务配置的一个综合概况
+LoadModule dav_fs_module modules/mod_dav_fs.so                #为mod_dav提供文件系统支持
+LoadModule vhost_alias_module modules/mod_vhost_alias.so        #为虚拟主机提供动态配置
+LoadModule negotiation_module modules/mod_negotiation.so        #为内容判断提供支持
+LoadModule dir_module modules/mod_dir.so                #为“／”结尾的重定向和目录文件索引
+LoadModule actions_module modules/mod_actions.so            #提供了基于请求和媒体类型的CGI脚本执行的支持
+LoadModule speling_module modules/mod_speling.so            #尝试纠正用户输入错误的网址
+LoadModule userdir_module modules/mod_userdir.so            #用户特定目录
+LoadModule alias_module modules/mod_alias.so                #提供主机文件系统不同部分的文件树映射为URL
+LoadModule rewrite_module modules/mod_rewrite.so            #提供在运行中基于规则的地址重写的支持
+LoadModule proxy_module modules/mod_proxy.so                #基于HTTP1.1协议的网关或代理服务器
+LoadModule proxy_balancer_module modules/mod_proxy_balancer.so        #负载均衡的mod_proxy拓展
+LoadModule proxy_ftp_module modules/mod_proxy_ftp.so            ＃为mod_proxy提供的ftp支持模块
+LoadModule proxy_http_module modules/mod_proxy_http.so            #为mod_proxy提供的http支持模块
+LoadModule proxy_connect_module modules/mod_proxy_connect.so        #mod_proxy的连接处理拓展模块
+LoadModule cache_module modules/mod_cache.so                #目录隐藏在URL外？
+LoadModule suexec_module modules/mod_suexec.so                #允许CGI脚本使用特定的用户和组运行
+LoadModule disk_cache_module modules/mod_disk_cache.so            #管理内容隐藏存放来适合URL的工具？
+LoadModule file_cache_module modules/mod_file_cache.so            #在内存中缓存一个文件列表
+LoadModule mem_cache_module modules/mod_mem_cache.so            #隐藏内容于URL
+LoadModule cgi_module modules/mod_cgi.so                #执行CGI脚本
+
+}}}
+
+
+== 为apache2配置webdav支持==
+
+ * 首先加载模块，移除默认的site ，加载后，重启apache服务
+{{{ 
+a2enmod dav dav_fs              
+a2dissite 000-default  
+}}}
+ * 添加 webdav 配置文件在 {{{ /etc/apache2/sites-enabled }}} 目录下，内容如下
+{{{
+<VirtualHost *:80>
+        ServerAdmin webmaster@localhost
+
+        DocumentRoot /opt
+        <Directory /opt/>
+                Options Indexes MultiViews
+                AllowOverride None
+                Order allow,deny
+                allow from all
+        </Directory>
+        #Alias /webdav /opt/mycloud
+
+        <Location />
+           DAV On
+           RemoveType .php .php4 .php5
+           AuthType Basic
+           AuthName "webdav"
+           AuthUserFile /var/www/passwd.dav
+           Require valid-user
+        </Location>
+</VirtualHost>
+}}}
+ 
+以上表示要用认证才能访问webdav服务，生成认证文件的命令如下
+
+{{{
+root@user1:/etc/apache2/sites-enabled# htpasswd -c /var/www/passwd.dav user
+New password: 
+Re-type new password: 
+Adding password for user user
+}}}

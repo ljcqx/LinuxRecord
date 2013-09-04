@@ -1,0 +1,356 @@
+#summary 关于如何在centos 5 下面下,配置 proftpd + mysql yum 安装
+
+= Introduction =
+
+支持限额,mysql管理用户,参考如下的pdf文件,修改了些,里面有部分错误,本文进行了修正
+
+[http://unxmail.googlecode.com/files/ProFTPD%E6%94%AF%E6%8C%81MySQL%E8%99%9A%E6%8B%9F%E7%94%A8%E6%88%B7%E5%8F%8AQuotas.pdf ProFTPD支持MySQL虚拟用户及Quotas]
+
+==1. 安装 ==
+
+{{{
+yum install mysql-server proftpd-mysql -y
+}}}
+
+==2. 配置==
+
+  * proftpd.sql 内容如下
+
+{{{
+-- 数据库: `proftpd`
+-- 
+-- --------------------------------------------------------
+
+-- 
+-- 表的结构 `ftpgroups`
+-- 
+
+CREATE TABLE `ftpgroups` (
+  `groupname` varchar(30) NOT NULL default '',
+  `gid` int(11) NOT NULL default '1000',
+  `members` varchar(255) NOT NULL default ''
+) ENGINE=MyISAM DEFAULT CHARSET=latin1;
+
+
+
+
+-- --------------------------------------------------------
+
+-- 
+-- 表的结构 `ftpusers`
+-- 
+
+CREATE TABLE `ftpusers` (
+  `userid` varchar(30) NOT NULL default '',
+  `passwd` varchar(80) NOT NULL default '',
+  `uid` int(10) unsigned NOT NULL default '1000',
+  `gid` int(10) unsigned NOT NULL default '1000',
+  `homedir` varchar(255) NOT NULL default '',
+  `shell` varchar(255) NOT NULL default '/sbin/nologin',
+  `count` int(10) unsigned NOT NULL default '0',
+  `host` varchar(30) NOT NULL default '',
+  `lastlogin` varchar(30) NOT NULL default '',
+  UNIQUE KEY `userid` (`userid`)
+) ENGINE=MyISAM DEFAULT CHARSET=latin1;
+
+-- 
+-- 导出表中的数据 `ftpusers`
+-- 
+
+INSERT INTO `ftpusers` VALUES ('test', 'test', 2010, 2010, '/home/test', '/sbin/nologin',0,'','');
+
+-- --------------------------------------------------------
+
+-- 
+-- 表的结构 `quotalimits`
+-- 
+
+CREATE TABLE `quotalimits` (
+  `name` varchar(30) default NULL,
+  `quota_type` enum('user','group','class','all') NOT NULL default 'user',
+  `per_session` enum('false','true') NOT NULL default 'false',
+  `limit_type` enum('soft','hard') NOT NULL default 'soft',
+  `bytes_in_avail` float NOT NULL default '0',
+  `bytes_out_avail` float NOT NULL default '0',
+  `bytes_xfer_avail` float NOT NULL default '0',
+  `files_in_avail` int(10) unsigned NOT NULL default '0',
+  `files_out_avail` int(10) unsigned NOT NULL default '0',
+  `files_xfer_avail` int(10) unsigned NOT NULL default '0'
+) ENGINE=MyISAM DEFAULT CHARSET=latin1;
+
+
+
+-- --------------------------------------------------------
+
+-- 
+-- 表的结构 `quotatallies`
+-- 
+
+CREATE TABLE `quotatallies` (
+  `name` varchar(30) NOT NULL default '',
+  `quota_type` enum('user','group','class','all') NOT NULL default 'user',
+  `bytes_in_used` float NOT NULL default '0',
+  `bytes_out_used` float NOT NULL default '0',
+  `bytes_xfer_used` float NOT NULL default '0',
+  `files_in_used` int(10) unsigned NOT NULL default '0',
+  `files_out_used` int(10) unsigned NOT NULL default '0',
+  `files_xfer_used` int(10) unsigned NOT NULL default '0'
+) ENGINE=MyISAM DEFAULT CHARSET=latin1;
+}}}
+
+  * 创建 proftpd 数据库
+
+{{{
+mysql > create database proftpd;
+}}}
+
+  * 创建 proftpd 登陆的 mysql 账号, 登陆名称 proftpd, 密码 123456
+
+{{{
+grant select,insert,update,delete,create,drop,index,alter,create temporary tables,lock tables on proftpd.*  to 'proftpd'@'localhost' Identified by "123456";
+}}}
+
+  * 导入 proftpd.sql
+
+{{{
+mysql proftpd < proftpd.sql
+}}}
+
+==3. 修改默认的 proftpd 配置文件==
+
+备份默认的 proftpd.conf 配置文件
+
+{{{
+mv /etc/proftpd.conf /etc/proftpd.conf.bak
+}}}
+
+新的 proftpd.conf 内容如下
+{{{
+LoadModule mod_sql.c
+LoadModule mod_sql_mysql.c
+
+LoadModule mod_quotatab.c
+LoadModule mod_quotatab_sql.c
+
+# This is a basic ProFTPD configuration file (rename it to
+# 'proftpd.conf' for actual use.  It establishes a single server
+# and a single anonymous login.  It assumes that you have a user/group
+# "nobody" and "ftp" for normal operation and anon.
+
+ServerName "My TestFTP" #这是您的FTP服务器的名字，自己写定
+ServerType standalone
+ServerAdmin chijiao@gmail.com #这是管理员信箱，自己来写；
+DefaultServer On
+
+# Display message
+#DisplayLogin /opt/proftpd/etc/ftplogin.msg
+#DisplayConnect /net/messages/ftp.pre
+#DisplayFirstChdir index.txt
+
+
+# Port 21 is the standard FTP port.
+Port 21
+
+# Limit users to login by username
+<Limit LOGIN>
+AllowAll
+</Limit>
+
+# Umask 022 is a good standard umask to prevent new dirs and files
+# from being group and world writable.
+Umask 022
+
+# Limit login attempts
+#
+MaxLoginAttempts                5
+
+# Set the maximum number of seconds a data connection is allowed
+# to "stall" before being aborted.
+TimeoutStalled 600
+TimeoutLogin 900
+TimeoutIdle 600
+
+
+TimeoutNoTransfer 600
+
+# Set the user and group under which the server will run.
+User nobody
+Group nobody
+
+# To cause every FTP user to be "jailed" (chrooted) into their home
+# directory, uncomment this line.
+DefaultRoot  ~
+
+# Users needs a valid shell
+#
+RequireValidShell               off
+
+# Performance: skip DNS resolution when we process the logs...
+UseReverseDNS       off
+
+# Turn off Ident lookups
+IdentLookups        off
+
+# Restart session support
+#
+AllowStoreRestart on
+AllowRetrieveRestart on
+
+#-------- load sql.mod for mysql authoritative --------#
+SQLBackend                      mysql
+SQLConnectInfo proftpd@localhost proftpd 123456  
+#注：上面这行是MySQL连接服务器部份，自己根据情况来改一改；
+SQLAuthTypes Plaintext Crypt
+SQLUserInfo ftpusers userid passwd uid gid homedir shell
+SQLGroupInfo ftpgroups groupname gid members
+SQLAuthenticate users groups
+SQLNegativeCache on
+#SQLHomedirOnDemand on
+SQLLogFile /var/log/proftpd.sql.log
+
+SQLNamedQuery getcount SELECT "count from ftpusers where userid='%u'"
+SQLNamedQuery getlastlogin SELECT "lastlogin from ftpusers where userid='%u'"
+
+SQLNamedQuery updatelogininfo UPDATE "count=count+1,host='%h',lastlogin=current_timestamp() WHERE userid='%u'" ftpusers
+
+SQLShowInfo PASS "230" "You've logged on %{getcount} times, last login at %{getlastlogin}"                                             
+SQLLog PASS updatelogininfo
+
+#-------- load sql.mod for mysql authoritative --------#
+
+#--------- load qudes.mod for Quota limit --------#
+
+QuotaDirectoryTally on
+QuotaDisplayUnits "Mb"
+QuotaEngine on
+#QuotaLog /var/log/proftpd.quota.log
+QuotaShowQuotas on
+
+SQLNamedQuery get-quota-limit SELECT "name, quota_type, per_session, limit_type, bytes_in_avail, \
+bytes_out_avail, bytes_xfer_avail, files_in_avail, files_out_avail, files_xfer_avail FROM quotalimits \
+WHERE name = '%{0}' AND quota_type = '%{1}'"
+
+SQLNamedQuery get-quota-tally SELECT "name, quota_type, bytes_in_used, bytes_out_used, \
+bytes_xfer_used, files_in_used, files_out_used, files_xfer_used FROM quotatallies \
+WHERE name = '%{0}' AND quota_type = '%{1}'"
+
+SQLNamedQuery update-quota-tally UPDATE "bytes_in_used = bytes_in_used + %{0}, \
+bytes_out_used = bytes_out_used + %{1}, bytes_xfer_used = bytes_xfer_used + %{2}, \
+files_in_used = files_in_used + %{3}, files_out_used = files_out_used + %{4}, \
+files_xfer_used = files_xfer_used + %{5} \
+WHERE name = '%{6}' AND quota_type = '%{7}'" quotatallies
+
+SQLNamedQuery insert-quota-tally INSERT "%{0}, %{1}, %{2}, %{3}, %{4}, %{5}, %{6}, %{7}" quotatallies
+
+QuotaLimitTable sql:/get-quota-limit
+QuotaTallyTable sql:/get-quota-tally/update-quota-tally/insert-quota-tally
+
+#--------- load qudes.mod for Quota limit --------#
+
+
+# Logging options
+
+# Debug Level
+# emerg, alert, crit (empfohlen), error, warn. notice, info, debug
+#
+SyslogLevel                     emerg
+SystemLog                       /var/log/proftpd.system.log
+TransferLog                     /var/log/proftpd.xferlog
+
+# Some logging formats
+#
+LogFormat            default "%h %l %u %t \"%r\" %s %b"
+LogFormat            auth    "%v [%P] %h %t \"%r\" %s"
+LogFormat            write   "%h %l %u %t \"%r\" %s %b"
+
+# Log file/dir access          
+# ExtendedLog                   /var/log/proftpd.access_log    WRITE,READ write
+
+# Record all logins
+ExtendedLog                     /var/log/proftpd.auth_log      AUTH auth
+
+# Paranoia logging level....
+ExtendedLog                     /var/log/proftpd.paranoid_log  ALL default
+
+#注；上面几行是存放log的设置，不必改动也行；查看log就到上面相应的文件看吧；
+
+# To prevent DoS attacks, set the maximum number of child processes
+# to 30.  If you need to allow more than 30 concurrent connections
+# at once, simply increase this value.  Note that this ONLY works
+# in standalone mode, in inetd mode you should use an inetd server
+# that allows you to limit maximum number of processes per service
+# (such as xinetd).
+MaxInstances 30  #注最多30个ip同时登录使用ftp;
+
+# Maximum clients with message
+#MaxClients 2 "Sorry, max %m users -- try again later"
+MaxClientsPerHost 2 "Sorry, only 2 session for one host"
+#注每个ip，只能两个线程程，请自己调整；
+# Normally, we want files to be overwriteable.
+<Directory />
+  AllowOverwrite on
+</Directory>
+
+RootLogin off
+RequireValidShell off
+# alphanumeric characters for uploads (and not shell code...)
+#PathAllowFilter "^[a-zA-Z0-9_.-]()'+$"
+#PathAllowFilter "^[a-zA-Z0-9 _.-]()'+$"
+
+# We don't want .ftpaccess or .htaccess files to be uploaded
+#PathDenyFilter "(\.ftp)|(\.ht)[a-z]+$"
+#pathDenyFilter "\.ftp[a-z]+$"
+
+# Do not allow to pass printf-Formats (security! see documentation!):
+
+#AllowFilter "^[a-zA-Z0-9@~ /,_.-]*$"
+#DenyFilter  "%
+}}}
+
+  * 创建ftp的使用账号
+
+{{{
+// 增加一个组ID为2010的ftpgroup组和用户,在mysql里面创建账号的时候,用这个ID
+groupadd -g 2010 ftpgroup 
+useradd -u 2010 -s /bin/false -d /liuxun/null -c "proftpd user" -g ftpgroup -r ftpuser
+}}}
+
+  * 启动 proftpd 开始测试吧
+
+{{{
+/etc/init.d/proftpd start
+}}}
+
+
+==4. 创建用户和设置限额==
+  
+  * 创建一个 user1,密码为 123456,存储空间限额 100M
+{{{
+mysql> INSERT INTO `ftpusers` VALUES ('user1', '123456', 2010, 2010, '/home/test', '/sbin/nologin',0,'','');
+mysql > insert into quotalimits VALUES  ('user1','user','false','soft','104857600','0','0','0','0','0');
+mkdir /home/user1
+chmod 777 /home/user1
+}}}
+
+  * 用客户端登陆测试
+
+{{{
+lftp user1:123456@192.168.1.6
+# 查看当前的限额
+> quote site quota;
+}}}
+会有如下输出
+{{{
+200-The current quota for this session are [current/limit]:
+Name: user1
+Quota Type: User
+Per Session: False
+Limit Type: Soft
+  Uploaded Mb:		0.00/100.00
+  Downloaded Mb:	unlimited
+  Transferred Mb:	unlimited
+  Uploaded files:	unlimited
+  Downloaded files:	unlimited
+  Transferred files:	unlimited
+200 Please contact chijiao@gmail.com if these entries are inaccurate
+}}

@@ -1,0 +1,104 @@
+#summary php读写操作hbase数据库的基本方法
+#labels hbase,php,hadoop
+
+= Introduction =
+
+Add your content here.
+
+
+{{{
+<?php
+
+$GLOBALS['THRIFT_ROOT'] = 'thrift';
+
+require_once( $GLOBALS['THRIFT_ROOT'].'/Thrift.php' );
+require_once( $GLOBALS['THRIFT_ROOT'].'/transport/TSocket.php' );
+require_once( $GLOBALS['THRIFT_ROOT'].'/transport/TBufferedTransport.php' );
+require_once( $GLOBALS['THRIFT_ROOT'].'/protocol/TBinaryProtocol.php' ); 
+require_once( $GLOBALS['THRIFT_ROOT'].'/packages/Hbase/Hbase.php' );
+
+
+$socket = new TSocket( 'localhost', 9090 );
+$socket->setSendTimeout( 10000 ); // Ten seconds (too long for production, but this is just a demo ;)
+$socket->setRecvTimeout( 20000 ); // Twenty seconds
+$transport = new TBufferedTransport( $socket );
+$protocol = new TBinaryProtocol( $transport );
+$client = new HbaseClient( $protocol );
+
+$transport->open();
+
+echo "start ...\r\n";
+echo "check table exist\r\n";
+
+$t = 'test_table';
+$table = $client->getTableNames();
+
+print_r($table);
+
+/**
+foreach ($table as $value){
+	if($value == $t){
+		echo "find $t,delete it\r\n";
+		if($client->isTableEnabled($value)){
+			echo "disabling $t\r\n";
+			$client->disableTable($value);
+		}
+		echo "deleting $t\r\n";
+		$client->deleteTable($value);
+	}
+}
+
+echo "Create new table $t\r\n";
+
+$aritcle = new ColumnDescriptor(array('name'=>'aritcle:'));
+$author = new ColumnDescriptor(array('name'=>'author:'));
+$columns = array($aritcle,$author);
+
+echo "Creating table $t\r\n";
+try {
+	$client->createTable($t,$columns);
+} catch (AlreadyExists $ae){
+	echo "$ae\r\n";
+}
+
+**/
+
+echo "Start insert some records\r\n";
+
+$record1 = array(new Mutation(array('column'=>'aritcle:title','value'=>'hello,world!')));
+$record2 = array(new Mutation(array('column'=>'aritcle:content','value'=>'welcome to hbase')));
+
+$client->mutateRow($t,'1',$record1);
+$client->mutateRow($t,'1',$record2);
+/**
+echo "In sert 1000 records\r\n";
+$time_start = microtime_float();
+
+for ($i=0;$i<10000;$i++){
+	$record = array(new Mutation(array('column'=>'aritcle:title','value'=>$i)));
+	$client->mutateRow($t,$i,$record);
+}
+
+$time_end = microtime_float();
+$time = $time_end - $time_start;
+
+echo "Did nothing in $time seconds\n";
+
+echo "rand read row \r\n";
+**/
+$row = $client->getRow($t,rand(1,10000));
+print_r($row);
+
+$row = $client->getRowWithColumns($t,1,'aritcle:');
+print_r($row);
+
+$transport->close();
+
+function microtime_float()
+{
+    list($usec, $sec) = explode(" ", microtime());
+    return ((float)$usec + (float)$sec);
+}
+
+?>
+}}}

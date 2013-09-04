@@ -1,0 +1,82 @@
+#summary openvpn 的各种配置
+
+
+= 以下是有关freeradius的配置文件=
+
+=== openvpn radius 认证服务器端配置文件 ===
+{{{
+port 1194
+proto udp
+dev tun
+ca /etc/openvpn/easy-rsa/2.0/keys/ca.crt
+cert /etc/openvpn/easy-rsa/2.0/keys/server.crt
+key /etc/openvpn/easy-rsa/2.0/keys/server.key
+dh /etc/openvpn/easy-rsa/2.0/keys/dh1024.pem
+push "redirect-gateway def1"
+server 10.101.10.0 255.255.255.0
+user nobody
+group nobody
+keepalive 10 60 
+persist-key
+persist-tun
+script-security 2
+tun-mtu 1500
+verb 1 
+no-replay
+management 127.0.0.1 9898
+plugin /etc/openvpn/radiusplugin.so /etc/openvpn/radiusplugin.cnf
+username-as-common-name
+client-cert-not-required
+reneg-sec 0
+auth-retry none 
+
+
+
+}}}
+
+=== client 端配置文件 ===
+{{{
+client
+dev tun
+proto udp
+remote xxxx 1194
+route-delay 2
+resolv-retry infinite
+nobind
+persist-key
+persist-tun
+auth-user-pass
+ca ca.crt
+verb 3
+auth-user-pass pass.txt
+explicit-exit-notify 2
+no-replay
+mssfix 1300
+tun-mtu-extra 32
+
+}}}
+
+=== /etc/openvpn/radiusplugin.cnf  配置文件 ===
+{{{
+NAS-Identifier=OpenVpn
+Service-Type=5
+Framed-Protocol=1
+NAS-Port-Type=5
+NAS-IP-Address=10.8.0.1
+OpenVPNConfig=/etc/openvpn/server.conf
+subnet=255.255.255.0
+overwriteccfiles=true
+server
+{
+	acctport=1813
+	authport=1812
+	name=10.8.0.1
+	retry=1
+	wait=1
+	sharedsecret=testing123
+}
+}}}
+
+* radiusplgin.so for centos 5 64bit下载地址 
+
+[http://unxmail.googlecode.com/files/radiusplugin.so]

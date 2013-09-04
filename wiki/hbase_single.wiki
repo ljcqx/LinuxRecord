@@ -1,0 +1,103 @@
+#summary hbase 单机模式下的配置方法
+
+= Introduction =
+
+如何配置单机模式下面的hbase,采用单机模式配置hbase,仅仅做学习和了解hbase之用,测试php+hbase
+
+
+= Details =
+
+系统环境:
+  * Ubuntu 10.10 32bits
+  * sun java jdk
+  * 以下所有的操作都是在root身份
+
+开始安装
+ * 安装java
+ * 下载安装 hbase
+
+{{{
+cd ~
+mkdir ~/hbase-fs
+wget http://mirror.bjtu.edu.cn/apache/hbase/stable/hbase-0.92.1.tar.gz
+tar xzvf hbase-0.92.1.tar.gz
+cd hbase-0.92.1/conf
+}}}
+  
+修改文件 hbase-site.xml 内容为如下,表示使用本地的文件系统
+{{{
+</configuration>
+    <property>
+        <name>hbase.rootdir</name>
+        <value>file:///root/hbase-fs</value>
+    </property>
+<configuration>
+}}}
+  
+修改文件 ,配置 java home 目录,修改为如下 
+{{{
+}}}
+
+ * 启动 hbase
+   
+启动hbase的命令是 start-hbase.sh 运行即可,启动以后,输入 jps 查看是否运行,如果已经正常运行,可用输入几条命令测试了
+
+ * 测试 hbase 是否正常
+
+输入 hbase shell ,进入到 hbase shell 模式,如下命令
+
+{{{
+>create 'test','cf'
+0 row(s) in 0.9940 seconds
+
+>list 
+TABLE
+test
+1 row(s) in 0.0290 seconds
+
+>put 'test', 'row1', 'cf:a', 'value1'
+0 row(s) in 0.2130 seconds
+
+>drop 'test'
+0 row(s) in 1.1440 seconds
+
+>exit
+
+}}} 
+
+到这里为止, hbase 单机模式配置完毕,接下来配置 thrift+php
+
+ * 下载 thrift 最新版本
+
+{{{
+cd ~
+#安装必须的编译环境
+apt-get install php5-dev php5 gcc g++ -y
+apt-get install build-essential libboost-dev automake libtool flex bison g++ python python-all-dev -y
+wget http://mirror.bjtu.edu.cn/apache/thrift/0.8.0/thrift-0.8.0.tar.gz
+tar xzvf thrift-0.8.0.tar.gz
+./configure
+make
+make install 
+}}}
+
+ * 生成 php 的连接文件
+
+{{{
+cd ~
+thrift --gen php /root/hbase-0.92.1/src/main/resources/org/apache/hadoop/hbase/thrift/Hbase.thrift
+}}}
+
+这个命令会在当前目录下面,生成 gen-php 文件夹
+
+ * 测试 php 连接 hbase 数据库
+
+{{{
+mkdir -p /var/www/hbase
+cp -r ~/thrift-0.8.0/lib/php/src /var/www/hbase/thrift
+mkdir /var/www/hbase/thrift/packages
+cp -r ~/gen-php/* /var/www/hbase/thrift/packages/
+cp ~/hbase-0.92.1/src/examples/thrift/DemoClient.php /var/www/hbase/DemoClient.php
+}}}
+
+ * 在浏览器里面打开 DemoClient.php 文件,查看结果

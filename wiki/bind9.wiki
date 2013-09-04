@@ -1,0 +1,348 @@
+#summary 关于配置bind9的一些笔记.
+
+= Introduction =
+
+配置bind9在 debian 系统下面.
+
+
+= 安装=
+
+安装bind9 用apt 命令安装即可,安装后,在 /etc/bind 目录下,会有如下的文件
+{{{
+root@debian:/etc/bind# tree
+.
+├── bind.keys
+├── db.0
+├── db.127
+├── db.255
+├── db.empty
+├── db.local
+├── db.root
+├── named.conf
+├── named.conf.default-zones
+├── named.conf.local
+├── named.conf.options
+├── rndc.key
+└── zones.rfc1918
+
+0 directories, 15 files
+}}}
+
+=== bind9 环境的基本配置 ===
+bind9 默认安装完成以后,监听本机端口,不监听其他端口,修改之,修改成如下,注意配置文件的标点符号 *;*
+
+{{{
+options {
+        directory "/var/cache/bind";
+        #表示监听所有端口
+        listen-on port 53  { any; };  
+        #表示启用转发功能,这里是转发服务器的地址
+        forwarders {
+                192.168.1.254;
+                8.8.8.8;
+        };
+        auth-nxdomain no;    # conform to RFC1035
+        listen-on-v6 { any; };
+};
+}}}
+
+=== 添加一个zone记录===
+添加zone记录的方法如下,在文件末尾添加自己的域名,如下
+
+{{{
+zone "elvps.com" {
+        type master;
+        file "/etc/bind/zone.elvps.com";
+};
+}}}
+
+然后 vim /etc/bin/zone.elvps.com,输入如下内容, 格式一定要如下
+
+{{{
+$TTL	600
+@	IN	SOA	dns.elvps.com. dns.elvps.com. ( 2011080401 3H 15M 1W 1D ) ;
+@	IN	NS	dns.elvps.com.; 
+dns.elvps.com.	IN A	192.168.202.139; 
+@	IN MX 10 www.elvps.com.	; 
+
+
+www.elvps.com.	IN	A	192.168.20.66
+win7.elvps.com.		IN	CNAME	www.elvps.com.
+mac.elvps.com.		IN	CNAME	www.elvps.com.
+}}}
+
+
+=== 智能dns的配置方法===
+智能dns,就是根据访问者的IP来返回对应的IP,联通的用户,返回联通的IP,电信的用户,就返回电信的IP,下面用简单的实验来配置这个,用到acl这个东西
+
+修改 /etc/bind/named.conf.default-zones 文件,为如下内容
+{{{
+# 192.168.50.66 的用户请求
+acl win7 { 192.168.50.66; };
+# 不是 192.168.50.66 的用户请求
+acl mac { ! 192.168.50.66; any };
+
+# 匹配上面的ACL
+view "win7" {   
+        match-clients { "win7"; };  
+	zone "." {
+        type hint;
+        file "/etc/bind/db.root";
+	};
+        zone "elvps.com" IN {
+                type master;
+                file "/etc/bind/zone.elvps.com";
+        };
+};
+# 匹配上面的ACL
+view "mac" {                       
+        match-clients { "mac"; }; 
+	zone "." {
+        type hint;
+        file "/etc/bind/db.root";
+	};
+        zone "elvps.com" IN {
+                type master;
+                file "/etc/bind/zone.elvps.com002"; 
+        };
+};
+}}}
+
+{{{
+root@debian:/etc/bind# cat zone.elvps.com
+$TTL    600
+@       IN      SOA     dns.elvps.com. dns.elvps.com. ( 2011080401 3H 15M 1W 1D ) ;
+@       IN      NS      dns.elvps.com.;
+dns.elvps.com.  IN A    192.168.202.139;
+@       IN MX 10 www.debian.chi.        ;
+www.elvps.com.          IN      A       192.168.20.66
+}}}
+
+{{{
+root@debian:/etc/bind# cat zone.elvps.com.002
+$TTL    600
+@       IN      SOA     dns.elvps.com. dns.elvps.com. ( 2011080401 3H 15M 1W 1D ) ;
+@       IN      NS      dns.elvps.com.;
+dns.elvps.com.  IN A    192.168.202.139;
+@       IN MX 10 www.debian.chi.        ;
+www.elvps.com.          IN      A       192.168.20.67
+}}}
+
+当用户的ip分别是 192.168.50.66 和 192.168.50.67 访问的时候,解析的域名是不一样的
+
+
+== debian6 下让bind9支持mysql的安装方法==
+以下参考如下网站 [http://diaryproducts.net/about/operating_systems/unix/installing_bind9_with_dlz_and_mysql_backend_on_ubuntu_jaunty_9_04 http://diaryproducts.net/about/operating_systems/unix/installing_bind9_with_dlz_and_mysql_backend_on_ubuntu_jaunty_9_04]
+
+[http://ubuntuforums.org/showthread.php?t=823578 http://ubuntuforums.org/showthread.php?t=823578]
+ * 首先要安装必要的包,把这些包霹雳啪啦的安装好
+{{{
+apt-get install mysql-server install libkrb5-dev libkrb5-dev libssl-dev libtool libdb-dev libldap2-dev libldap2-dev libcap2-dev hardening-wrapper debhelper libxml2-dev dpkg-dev libgeoip-dev libmysqlclient15-dev
+}}}
+
+ * 接着编辑 source.list 确保 source 源开启,如下图
+{{{
+deb-src http://mirrors.163.com/debian squeeze main non-free contrib
+deb-src http://mirrors.163.com/debian squeeze-proposed-updates main contrib non-free
+deb-src http://mirrors.163.com/debian-security squeeze/updates main contrib non-free
+}}}
+
+ * 然后 apt-get update 一下,接着开始下载 bind9 的源代码编译
+{{{
+mkdir -p /usr/local/src/bind9
+cd /usr/local/src/bind9
+apt-get source bind9
+}}}
+
+ * 下载完成以后,会有如下的文件在这个目录下
+{{{
+drwxr-xr-x 11 root root     4096 Aug 16 02:50 bind9-9.7.3.dfsg
+-rw-r--r--  1 root staff  513121 Jul  6 21:55 bind9_9.7.3.dfsg-1~squeeze3.diff.gz
+-rw-r--r--  1 root staff    1839 Jul  6 21:55 bind9_9.7.3.dfsg-1~squeeze3.dsc
+-rw-r--r--  1 root staff    5407 Aug 16 02:50 bind9_9.7.3.dfsg-1~squeeze3_i386.changes
+-rw-r--r--  1 root staff 6234034 Feb 23 12:32 bind9_9.7.3.dfsg.orig.tar.gz
+}}}
+ * 修改config 的编译配置文件, 
+{{{
+root@debian:/usr/local/src/bind9#cd bind9-9.7.3.dfsg/
+vim debian/rules
+}}}
+ * 修改 debian/rules 文件,找到
+{{{ 
+--with-dlz-mysql=no  修改成  --with-dlz-mysql=yes 
+}}}
+
+ * 开始编译
+{{{
+root@debian:/usr/local/src/bind9/bind9-9.7.3.dfsg#dpkg-buildpackage -rfakeroot -b
+}}}
+
+ *  等编译完成后, 会有如下的文件产生
+{{{
+root@debian:/usr/local/src/bind9/bind9-9.7.3.dfsg#cd ..
+root@debian:/usr/local/src/bind9#ls -lh
+drwxr-xr-x 11 root root  4.0K Aug 16 02:50 bind9-9.7.3.dfsg
+-rw-r--r--  1 root staff 502K Jul  6 21:55 bind9_9.7.3.dfsg-1~squeeze3.diff.gz
+-rw-r--r--  1 root staff 1.8K Jul  6 21:55 bind9_9.7.3.dfsg-1~squeeze3.dsc
+-rw-r--r--  1 root staff 5.3K Aug 16 02:50 bind9_9.7.3.dfsg-1~squeeze3_i386.changes
+-rw-r--r--  1 root staff 337K Aug 16 02:50 bind9_9.7.3.dfsg-1~squeeze3_i386.deb
+-rw-r--r--  1 root staff 6.0M Feb 23 12:32 bind9_9.7.3.dfsg.orig.tar.gz
+-rw-r--r--  1 root staff 336K Aug 16 02:50 bind9-doc_9.7.3.dfsg-1~squeeze3_all.deb
+-rw-r--r--  1 root staff  67K Aug 16 02:50 bind9-host_9.7.3.dfsg-1~squeeze3_i386.deb
+-rw-r--r--  1 root staff 116K Aug 16 02:50 bind9utils_9.7.3.dfsg-1~squeeze3_i386.deb
+-rw-r--r--  1 root staff 151K Aug 16 02:50 dnsutils_9.7.3.dfsg-1~squeeze3_i386.deb
+-rw-r--r--  1 root staff  18K Aug 16 02:50 host_9.7.3.dfsg-1~squeeze3_all.deb
+-rw-r--r--  1 root staff  38K Aug 16 02:50 libbind9-60_9.7.3.dfsg-1~squeeze3_i386.deb
+-rw-r--r--  1 root staff 1.4M Aug 16 02:50 libbind-dev_9.7.3.dfsg-1~squeeze3_i386.deb
+-rw-r--r--  1 root staff 654K Aug 16 02:50 libdns69_9.7.3.dfsg-1~squeeze3_i386.deb
+-rw-r--r--  1 root staff 159K Aug 16 02:50 libisc62_9.7.3.dfsg-1~squeeze3_i386.deb
+-rw-r--r--  1 root staff  31K Aug 16 02:50 libisccc60_9.7.3.dfsg-1~squeeze3_i386.deb
+-rw-r--r--  1 root staff  50K Aug 16 02:50 libisccfg62_9.7.3.dfsg-1~squeeze3_i386.deb
+-rw-r--r--  1 root staff  49K Aug 16 02:50 liblwres60_9.7.3.dfsg-1~squeeze3_i386.deb
+-rw-r--r--  1 root staff 229K Aug 16 02:50 lwresd_9.7.3.dfsg-1~squeeze3_i386.deb
+}}}
+
+ *   开始安装这个编译好的 deb 包
+{{{
+root@foo:/usr/local/src/bind9# dpkg -i *.deb
+}}}
+ 
+ * 安装完成以后,修改下如下几个文件,以免会出问题,至于出什么问题,有个人是这样说的
+{{{
+I seem to be running into a problem connected with leaking or intermittedly dying connections to the MySQL server. Bind logs "mysql driver unable to return result set for findzone query" and eventually dies. This matches a problem description I found in a discussion on the DLZ mailing list with some interesting findings. I have not applied the suggested patch yet and am trying to fix the problem solely by forcing Bind to run in a single thread which has also been suggested in that thread. 
+}}}
+   所有为安全起见,就修改下
+{{{
+vim /etc/default/bind9
+# 修改成如下
+OPTIONS="-u bind -n 1"
+}}}
+
+ * 这里配置完成以后,接着配置 bind ,使其支持mysql,编辑 文件,在最后面添加如下
+{{{
+root@debian:/etc/bind#vim named.conf.default-zones
+dlz "Mysql zone" {
+   database "mysql
+   {host=127.0.0.1 dbname=db_name user=db_user pass=db_pass}
+   {select zone from dns_records where zone = '$zone$'}
+   {select ttl, type, mx_priority, case when lower(type)='txt' then concat('\"', data, '\"') when lower(type) = 'soa' then concat_ws(' ', data, resp_person, serial, refresh, retry, expire, minimum) else data end from dns_records where zone = '$zone$' and host = '$record$'}";
+};
+}}}
+
+ * 接着创建并配置mysql
+    创建mysql数据库,并分配权限
+{{{
+create database db_name;
+grant all privileges on db_name.* to db_user@localhost identified by 'db_pass';
+# 创建表
+ CREATE TABLE `dns_records` (
+  `id` int(11) NOT NULL auto_increment,
+  `zone` varchar(64) default NULL,
+  `host` varchar(64) default NULL,
+  `type` varchar(8) default NULL,
+  `data` varchar(64) default NULL,
+  `ttl` int(11) NOT NULL default '3600',
+  `mx_priority` int(11) default NULL,
+  `refresh` int(11) NOT NULL default '3600',
+  `retry` int(11) NOT NULL default '3600',
+  `expire` int(11) NOT NULL default '86400',
+  `minimum` int(11) NOT NULL default '3600',
+  `serial` bigint(20) NOT NULL default '2008082700',
+  `resp_person` varchar(64) NOT NULL default 'resp.person.email',
+  `primary_ns` varchar(64) NOT NULL default 'ns1.yourdns.here',
+  `data_count` int(11) NOT NULL default '0',
+  PRIMARY KEY  (`id`),
+  KEY `host` (`host`),
+  KEY `zone` (`zone`),
+  KEY `type` (`type`)
+) ENGINE=MyISAM DEFAULT CHARSET=latin1;
+}}}
+
+   在数据库里面添加记录
+{{{
+mysql> use db_name;
+# for www.domain.com to resolve to 1.2.3.4
+insert into dns_records (zone, host, type, data, mx_priority) values ('domain.com', 'www', 'A', '1.2.3.4', null);
+
+# for domain.com to resolve to 1.2.3.4
+insert into dns_records (zone, host, type, data, mx_priority) values ('domain.com', '@', 'A', '1.2.3.4', null);
+
+# for www2.domain.com to alias to www.domain.com
+# note the trailing period in the data field
+insert into dns_records (zone, host, type, data, mx_priority) values ('domain.com', 'www2', 'CNAME', 'www.domain.com.', null);
+
+// for mail for domain.com to go to domain.com
+// note the trailing period in the data field
+insert into dns_records (zone, host, type, data, mx_priority) values ('domain.com', '@', 'MX', 'domain.com.', '0');
+}}}
+
+   以上就搞定了,把自己的dns指向他,然后测试下吧,会有如下的结果
+{{{
+nslookup 
+> www.domain.com
+服务器:  UnKnown
+Address:  192.168.202.139
+
+名称:    www.domain.com
+Address:  1.2.3.4
+}}}
+
+
+==以下是关于对dns系统的一些理解==
+ * 每个主机名称后面都要加个 . 是表示用FQDN的标准 
+
+鸟哥的关于 dns 的一篇文章 [http://linux.vbird.org/linux_server/0350dns.php http://linux.vbird.org/linux_server/0350dns.php]
+
+===以下来自鸟哥的网站,对 RR Type 的几种常见解释===
+{{{
+# 常见的正解档 RR 相关资讯
+[domain]    IN  [[RR type]  [RR data]]
+主机名称.   IN  A           IPv4 的 IP 位址
+主机名称.   IN  AAAA        IPv6 的 IP 位址
+域名称.   IN  NS          管理这个域名称的服务器主机名字.
+域名称.   IN  SOA         管理这个域名称的七个重要参数
+域名称.   IN  MX          顺序数字  接收邮件的服务器主机名字
+主机别名.   IN  CNAME       实际代表这个主机别名的主机名字.
+}}}
+更详细的介绍在 [http://www.bind9.net/dns-parameters http://www.bind9.net/dns-parameters]
+
+=== 关于 SOA 的7个参数的解释 ===
+
+SOA 主要是与领域有关，所以前面当然要写 ksu.edu.tw 这个领域名。而 SOA 后面共会接七个参数，这七个参数的意义依序是：
+
+ *  *Master DNS 服务器主机名称* ：这个领域主要是哪部 DNS 作为 master 的意思。在本例中， dns1.ksu.edu.tw 为 ksu.edu.tw 这个领域的主要 DNS 服务器
+
+ *  *管理员的 email* ：那么管理员的 email 为何？发生问题可以联络这个管理员。要注意的是， 由于 @ 在数据库档案中是有特别意义的，因此这里就将 abuse@mail.ksu.edu.tw 改写成 abuse.mail.ksu.edu.tw ，这样看的懂了吗？
+
+ * *序号 (Serial)* ：这个序号代表的是这个数据库档案的新旧，序号越大代表越新。 当 slave 要判断是否主动下载新的数据库时，就以序号是否比 slave 上的还要新来判断，若是则下载，若不是则不下载。 所以当你修订了数据库内容时，记得要将这个数值放大才行！ 为了方便使用者记忆，通常序号都会使用日期格式『YYYYMMDDNU』来记忆，例如崑山科大的 2010080369 序号代表 2010/08/03 当天的第 69 次更新的感觉。不过，序号不可大于 2 的 32 次方，亦即必须小于 4294967296 才行喔。
+
+ * *更新频率 (Refresh)* ：那么啥时 slave 会去向 master 要求资料更新的判断？ 就是这个数值定义的。崑山科大的 DNS 设定每 1800 秒进行一次 slave 向 master 要求资料更新。那每次 slave 去更新时， 如果发现序号没有比较大，那就不会下载数据库档案。
+
+ * *失败重新尝试时间 (Retry)* ：如果因为某些因素，导致 slave 无法对 master 达成连线， 那么在多久的时间内，slave 会尝试重新连线到 master。在崑山科大的设定中，900 秒会重新尝试一次。意思是说，每 1800 秒 slave 会主动向 master 连线，但如果该次连线没有成功，那接下来尝试连线的时间会变成 900 秒。若后来有成功，则又会恢复到 1800 秒才再一次连线。
+
+ * *失效时间 (Expire)* ：如果一直失败尝试时间，持续连线到达这个设定值时限， 那么 slave 将不再继续尝试连线，并且尝试删除这份下载的 zone file 信息。崑山科大设定为 604800 秒。意思是说，当连线一直失败，每 900 秒尝试到达 604800 秒后，崑山科大的 slave 将不再更新，只能等待系统管理员的处理。
+
+ * *快取时间 (Minumum TTL)* ：如果这个数据库 zone file 中，每笔 RR 记录都没有写到 TTL 快取时间的话，那么就以这个 SOA 的设定值为主。
+
+可以用dig命令来查看和了解 SOA的值
+{{{
+root@debian:/etc/bind# dig -t soa google.com
+
+; <<>> DiG 9.7.2-P3 <<>> -t soa google.com
+;; global options: +cmd
+;; Got answer:
+;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 40305
+;; flags: qr rd ra; QUERY: 1, ANSWER: 1, AUTHORITY: 0, ADDITIONAL: 0
+
+;; QUESTION SECTION:
+;google.com.                    IN      SOA
+
+;; ANSWER SECTION:
+google.com.             86399   IN      SOA     ns1.google.com. dns-admin.google.com. 1459424 7200 1800 1209600 300
+
+;; Query time: 277 msec
+;; SERVER: 8.8.8.8#53(8.8.8.8)
+;; WHEN: Tue Aug 16 04:08:25 2011
+;; MSG SIZE  rcvd: 78
+
+}}}

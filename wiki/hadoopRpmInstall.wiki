@@ -1,0 +1,105 @@
+#summary One-sentence summary of this page.
+
+= Introduction =
+
+Add your content here.
+
+
+= Details =
+
+Add your content here.  Format your content with:
+  * Text in *bold* or _italic_
+  * Headings, paragraphs, and lists
+  * Automatic links to other wiki pages
+
+java -version
+java version "1.6.0_22"
+OpenJDK Runtime Environment (IcedTea6 1.10.4) (rhel-1.41.1.10.4.el6-x86_64)
+OpenJDK 64-Bit Server VM (build 20.0-b11, mixed mode)
+
+uname -a
+Linux n1.b.cn 2.6.32-220.el6.x86_64 #1 SMP Tue Dec 6 19:48:22 GMT 2011 x86_64 x86_64 x86_64 GNU/Linux
+
+
+http://mirror.bit.edu.cn/apache/hadoop/common/stable/hadoop-1.0.1-1.amd64.rpm
+
+
+{{{
+hadoop-env.sh   
+/usr/lib/jvm/java
+
+slaves (namenode)
+d1.b.cn
+d2.b.cn
+d3.b.cn
+
+mkdir -p /var/hadoop/data
+chown -R hdfs.hadoop /var/hadoop/data
+hdfs-site.xml(datanode)
+<configuration>
+	<property>
+		<name>dfs.data.dir</name>
+		<value>/var/hadoop/data</value>
+	</property>
+	<property>
+		<name>fs.replication</name>
+		<value>2</value>
+	</property>
+</configuration>
+
+
+mkdir -p /var/hadoop/name
+chown -R hdfs.hadoop /var/hadoop/name
+core-site.xml(namenode)
+<configuration>
+        <!-- global properties -->
+	<property>
+		<name>hadoop.tmp.dir</name>
+		<value>/var/hadoop/name</value>
+	</property>
+    <!-- file system properties -->
+	<property>
+		<name>fs.default.name</name>
+		<value>hdfs://n1.b.cn:9000</value>
+	</property>
+</configuration>
+
+
+core-site.xml(datanode)
+<configuration>
+    <!-- file system properties -->
+	<property>
+		<name>fs.default.name</name>
+		<value>hdfs://n1.b.cn:9000</value>
+	</property>
+</configuration>
+
+mapred-site.xml (data-name)
+<configuration>
+	<property>
+		<name>mapred.job.tracker</name>
+		<value>n1.b.cn:9001</value>
+	</property>
+	<property>
+		<name>mapred.system.dir</name>
+		<value>hdfs://n1.b.cn:9000/mapred/system</value>
+    </property>
+</configuration>
+
+(namenode)
+sudo -u hdfs hadoop fs -mkdir /mapred/system   
+sudo -u hdfs hadoop fs -chown mapred:hadoop /mapred/system 
+
+
+chkconfig --add hadoop-namenode
+chkconfig --add hadoop-jobtracker
+chkconfig hadoop-namenode on
+chkconfig hadoop-jobtracker on
+
+(datanode)
+chkconfig --add hadoop-datanode
+chkconfig --add hadoop-tasktracker
+chkconfig hadoop-datanode on
+chkconfig hadoop-tasktracker on
+
+}}}

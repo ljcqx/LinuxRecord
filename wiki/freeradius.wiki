@@ -1,0 +1,485 @@
+#summary 介绍freeradius 的一些配置
+
+= 介绍 =
+
+如何配置freeradius 及 mysql 等
+
+参考了如下的文章，并做了稍微的修改 [http://nsysumis94.pixnet.net/blog/post/24509813 Nightmare的胡言亂語]
+
+严格按照我的步骤来做，是没有任何问题的，我一步一步的做的测试
+
+
+== 安装步骤 ==
+
+ * 安装mysql，安装的时候记得要设置密码,以下假设密码为 root
+{{{
+apt-get install mysql-server
+}}} 
+
+ * 安装 freeradius 等相关组件，为了方便调试管理，把phpmyadmin 等一起安装
+{{{
+apt-get install freeradius freeradius-mysql apache2 phpmyadmin -y
+}}} 
+
+ * 创建数据库并导入默认的 freeradius 的数据库表
+
+    默认安装后，在 {{{ /etc/freeradius/sql/mysql/ }}} 目录下，有默认的sql表，把这些个表导入进去，可以 {{{ ls /etc/freeradius/sql/mysql/ }}}
+{{{
+mysql -uroot -proot -e "create database radius;"
+cd /etc/freeradius/sql/mysql/
+mysql -u root -proot radius < ippool.sql
+mysql -u root -proot radius < schema.sql
+mysql -u root -proot radius < nas.sql
+mysql -u root -proot radius < admin.sql
+}}}
+    导入完成以后，查看导入的表
+{{{
+mysql -uroot -proot -e "use radius;show tables;"
+}}}
+    应该有如下的输出
+{{{
++------------------+
+| Tables_in_radius |
++------------------+
+| nas              |
+| radacct          |
+| radcheck         |
+| radgroupcheck    |
+| radgroupreply    |
+| radippool        |
+| radpostauth      |
+| radreply         |
+| radusergroup     |
++------------------+
+9 rows in set (0.00 sec)
+}}}
+
+ * 新增RADIUS在MySQL里面的认证资料
+   
+    进入mysql 模式，输入如下命令
+{{{
+mysql -uroot -proot
+mysql > 
+# ---- 
+use radius;
+INSERT INTO `radgroupreply` (`id`, `groupname`, `attribute`, `op`, `value`) VALUES
+(1, 'user', 'Auth-Type', ':=', 'Local'),
+(2, 'user', 'Service-Type', ':=', 'Framed-User'),
+(3, 'user', 'Framed-IP-Address', ':=', '255.255.255.254'),
+(4, 'user', 'Framed-IP-Netmask', ':=', '255.255.255.0'),
+(5, 'user', 'Max-Monthly-Traffic', ':=', '10737418240');
+# 加入测试账号 sqltest
+insert into radcheck (username,attribute,op,value) values ('sqltest','User-Password',':=','test');
+# 把账号加入群组
+insert into radusergroup (username,groupname) values ('sqltest','user');
+}}}
+
+ * 设定 freeradius 通过mysql 来认证
+    1.編輯{{{/etc/freeradius/radiusd.conf}}}，找到$INCLUDE sql.conf並且把前面的#拿掉 (在 683 行)
+
+    2.編輯{{{/etc/freeradius/sites-enabled/default}}}，找到 {{{ authorize {} }}}跟{{{ accounting {} }}}裡面的sql,並且把前面的#拿掉(不然就是自己加)，加完後應該會像下面這樣
+{{{
+authorize { 
+　　preprocess 
+　　chap 
+　　mschap 
+　　suffix 
+　　sql 
+　　} 
+accouting { 
+　　…. 
+　　sql 
+　　… 
+　　} 
+}}}
+    3.編輯Mysql連線設定，在 {{{ /etc/freeradius/sql.conf }}} 中會存放著MySQL的連線設定, 編輯MySQL的連線帳號密碼讓Free RADIUS可以連線到MySQL，編輯完大概會像下面這樣
+
+{{{
+sql {
+        #
+        #  Set the database to one of:
+        #
+        #       mysql, mssql, oracle, postgresql
+        #
+        database = "mysql"
+
+        #
+        #  Which FreeRADIUS driver to use.
+        #
+        driver = "rlm_sql_${database}"
+
+        # Connection info:
+        server = "localhost"
+        login = "radius"
+        password = "radpass"
+....略...
+
+}}}
+
+    用admin.sql匯入的話，那帳號密碼就是預設的(如上)，如果不是就要改成自己設定的那組。
+
+    其中database就是你的資料庫類型(mysql, mssql, oracle, postgresql)，server是資料庫IP,如果MySQL跟Free RADIUS同一台的話用localhost就好，login跟password則是mysql登入的帳號密碼
+
+ * 测试认证情况
+
+  完成上述動作後，可以透過 freeradius -X 來啟動 Free RADIUS 的debug模式，檢查設定有沒有問題，沒有問題的話就可以透過 {{{ /etc/init.d/freeradius start }}} 來啟動service，並且可以透過radtest來測試帳號是否認證成功
+{{{
+radtest sqltest test localhost 0 testing123
+}}}
+
+  其中sqltest就是我們剛剛建立的帳號，密碼則是test，localhost則是因為我們是跟本地的radius認證，0代表的是nas-port-number(不知道幹麻的話先填0就對了)，最後則是Free RADIUS連線密碼，這個密碼可以在/etc/freeradius/clients.conf裡面設定
+
+ ==其他補充==
+
+  /etc/freeradius/clients.conf
+
+  這個檔案是用來設定誰可以存取此台RADIUS，假設我有一台ip為192.168.230.129的機器要存取這台RADIUS的話，
+  則必須要在clients.conf加入下面設定：
+{{{
+client 192.168.230.128{
+        secret = testing123
+}
+}}}
+
+  其中secret就是跟RADIUS連線的認證密碼
+{{{
+/etc/freeradius/users
+}}}
+
+  Free RADIUS除了用Linux本地、MySQL、LDAP等等認證之外，當然也支援用純文字檔來存放使用者帳戶，users就是拿來放帳戶用的。
+
+  譬如我要加個使用者叫做peter密碼為1234，則可以在users裡面加入這樣的設定。
+{{{
+peter Cleartext-Password := "1234"
+}}}
+
+
+==结合ppp的认证==
+
+  ppp认证，需要配置的地方及功能
+
+ *  计费
+ 
+ * 设置用户同时在线数量
+ 
+ * 强制踢出用户
+
+  具体的实现方法,需要修改如下配置文件 {{{ /etc/freeradius/sites-enabled/default }}} 这个文件,修改成如下的样子
+{{{
+authorize {
+	preprocess
+	chap
+	mschap
+	digest
+	suffix
+	eap {
+		ok = return
+	}
+	sql
+	expiration
+	logintime
+	pap
+        # 自定义的sql语句，用来控制流量信息
+        update request {
+                   Group-Name := "%{sql:SELECT groupname FROM radusergroup WHERE username='%{User-Name}' ORDER BY priority}"
+       }
+
+       if ("%{sql: SELECT SUM(acctinputoctets+acctoutputoctets) FROM radacct WHERE username='%{User-Name}' AND date_format(acctstarttime, '%Y-%m-%d') >= date_format(now(),'%Y-%m-01') AND date_format(acctstoptime, '%Y-%m-%d') <= last_day(now());}" >= "%{sql: SELECT value FROM radgroupreply WHERE groupname='%{Group-Name}' AND attribute='Max-Monthly-Traffic';}") {
+                 reject
+       }
+}
+
+
+authenticate {
+	Auth-Type PAP {
+		pap
+	}
+	Auth-Type CHAP {
+		chap
+	}
+	Auth-Type MS-CHAP {
+		mschap
+	}
+	digest
+	eap
+}
+
+preacct {
+	preprocess
+	acct_unique
+	suffix
+	files
+}
+
+accounting {
+	detail
+	sql
+	sql_log
+	exec
+	attr_filter.accounting_response
+}
+
+session {
+	sql
+}
+
+post-auth {
+        sql
+	sql_log
+	Post-Auth-Type REJECT {
+		sql
+		attr_filter.access_reject
+	}
+}
+
+pre-proxy {
+}
+post-proxy {
+	eap
+}
+}}}
+
+  修改 radiusd.conf 这个文件,内容如下
+{{{
+# -*- text -*-
+##
+## radiusd.conf	-- FreeRADIUS server configuration file.  for centos 5 32bit
+##
+##	http://www.freeradius.org/
+##	$Id$
+##
+
+
+prefix = /usr
+exec_prefix = /usr
+sysconfdir = /etc
+localstatedir = /var
+sbindir = ${exec_prefix}/sbin
+logdir = /var/log/freeradius
+raddbdir = /etc/raddb
+radacctdir = ${logdir}/radacct
+
+name = radiusd
+confdir = ${raddbdir}
+run_dir = ${localstatedir}/run/${name}
+db_dir = ${raddbdir}
+libdir = /usr/lib/freeradius
+
+pidfile = ${run_dir}/${name}.pid
+user = radiusd
+group =  radiusd
+max_request_time = 30
+cleanup_delay = 5
+max_requests = 1024
+
+listen {
+	type = auth
+	ipaddr = *
+	port = 0
+}
+
+listen {
+	ipaddr = *
+	port = 0
+	type = acct
+}
+
+hostname_lookups = no
+allow_core_dumps = no
+regular_expressions	= yes
+extended_expressions	= yes
+
+log {
+	destination = files
+	file = ${logdir}/radius.log
+	syslog_facility = daemon
+	stripped_names = no
+	auth = yes
+	auth_badpass = yes
+	auth_goodpass = yes
+}
+
+checkrad = ${sbindir}/checkrad
+
+security {
+	max_attributes = 200
+	reject_delay = 1
+	status_server = yes
+}
+
+proxy_requests  = no
+
+thread pool {
+	start_servers = 5
+	max_servers = 32
+	min_spare_servers = 3
+	max_spare_servers = 10
+	max_requests_per_server = 0
+}
+
+modules {
+	$INCLUDE ${confdir}/modules/
+	$INCLUDE eap.conf
+	$INCLUDE sql.conf
+	$INCLUDE sql/mysql/counter.conf
+	$INCLUDE sqlippool.conf
+}
+
+instantiate {
+	exec
+	expr
+	expiration
+	logintime
+}
+
+$INCLUDE policy.conf
+$INCLUDE sites-enabled/
+
+
+}}}
+
+  接着修改  sql.conf 这个文件根据自己的情况修改,输入相关的 mysql 信息即可
+
+  修改 {{{ /etc/freeradius/sql/mysql/dialup.conf  }}} 这个文件,找到如下段 {{{ sql_user_name = "%{%{Stripped-User-Name}:-%{%{User-Name}:-DEFAULT}}" }}} ,把这个取消注释,把这行下面的注释. 找到 {{{ simul_count_query }}} 字段，把这个取消注释，然后保存文件即可
+
+  下载 radiusclient 文件包 [http://unxmail.googlecode.com/files/radiusclient.tar.gz radiusclient.tar.gz] ,下载后，解压到 /etc 目录下，编辑 server 文件，添加如下字段
+{{{
+localhost testing123
+}}}
+   
+  接着到  /etc/ppp 目录下，如果是 pptp ，修改 options.pptpd 文件，文件尾添加如下字段，如果是 l2tp 服务，修改 options.xl2tpd 文件，都是添加如下的字段
+{{{
+plugin /usr/lib64/pppd/2.4.5/radius.so
+plugin /usr/lib64/pppd/2.4.5/radattr.so
+radius-config-file /etc/radiusclient/radiusclient.conf
+}}}
+
+
+=== 限制流量 ===
+修改 defalult 文件，在添加如下字段
+{{{
+update request {
+Group-Name := "%{sql:SELECT groupname FROM radusergroup WHERE username='%{User-Name}' ORDER BY priority}"
+}
+
+if ("%{sql: SELECT SUM(acctinputoctets+acctoutputoctets) FROM radacct WHERE username='%{User-Name}' AND date_format(acctstarttime, '%Y-%m-%d') >= date_format(now(),'%Y-%m-01') AND date_format(acctstoptime, '%Y-%m-%d') <= last_day(now());}" >= "%{sql: SELECT value FROM radgroupreply WHERE groupname='%{Group-Name}' AND attribute='Max-Monthly-Traffic';}") {
+reject
+}
+
+}}}
+在 dictionary 文件末尾添加如下字段，由于上步中有非内置的attribute Max-Monthly-Traffic，所以需要在 dictionary 里面定义：
+
+{{{
+ATTRIBUTE Max-Monthly-Traffic 3003 integer
+}}}
+接着在数据库添加记录，控制当前的组用户的限额 
+{{{
+INSERT INTO radgroupreply (groupname,attribute,op,VALUE) VALUES ('user','Acct-Interim-Interval',':=','600');
+INSERT INTO radgroupreply (groupname,attribute,op,VALUE) VALUES ('user','Max-Monthly-Traffic',':=','5368709120');
+INSERT INTO radgroupcheck (groupname,attribute,op,VALUE) VALUES ('user','Simultaneous-Use',':=','1');
+}}}
+第一行表示设置 每 600秒 更新流量信息到数据库中，第二行表示设置每月的最大限额，第三行表示 最大同时在线的数量 
+
+
+=== 限制用户过期时间===
+限制过期时间，到了这个时间后，用户就不能登陆，这个时间是系统的时间，查看系统时间的方法 date 命令查看，就可以做对比
+在数据库表 radcheck 添加如下记录
+{{{
+INSERT INTO  `radius`.`radcheck` (
+`id` ,
+`username` ,
+`attribute` ,
+`op` ,
+`value`
+)
+VALUES (
+NULL ,  'sxy',  'Expiration',  ':=',  '06 Jun 2006 14:55:22'
+);
+}}}
+
+ =配置文件解析=
+
+
+==/etc/freeradius/sq/mysql/counter.conf ==
+
+ *  'reset' 参数定义了什么时候对计数进行清零，可以为 小时，每天，每周，每月，或者 永不，值为 [ h d w m ] h: 小时 d：天  w：周   m:月  eg： 12h,表示12小时后清零, 值分别为 {{{  hourly, daily, weekly, monthly, never }}}
+
+ *  'key' 定义唯一的识别号,默认为  User-Name  
+
+ *  The 'query'   定义特别的SQL Query 语句向数据库请求数据,有三个参数需要用到,分别为 
+{{{
+%k	'key' parameter
+%b	unix time value of beginning of reset period
+%e	unix time value of end of reset period
+}}}
+
+ * 以下为标准的配置文件示例
+{{{
+sqlcounter dailycounter {
+	counter-name = Daily-Session-Time
+	check-name = Max-Daily-Session
+	reply-name = Session-Timeout
+	sqlmod-inst = sql
+	key = User-Name
+	reset = daily
+
+	# This query properly handles calls that span from the
+	# previous reset period into the current period but
+	# involves more work for the SQL server than those
+	# below
+	query = "SELECT SUM(acctsessiontime - \
+                 GREATEST((%b - UNIX_TIMESTAMP(acctstarttime)), 0)) \
+                 FROM radacct WHERE username = '%{%k}' AND \
+                 UNIX_TIMESTAMP(acctstarttime) + acctsessiontime > '%b'"
+
+	# This query ignores calls that started in a previous
+	# reset period and continue into into this one. But it
+	# is a little easier on the SQL server
+#	query = "SELECT SUM(acctsessiontime) FROM radacct WHERE \
+#                username = '%{%k}' AND acctstarttime > FROM_UNIXTIME('%b')"
+
+	# This query is the same as above, but demonstrates an
+	# additional counter parameter '%e' which is the
+	# timestamp for the end of the period
+#	query = "SELECT SUM(acctsessiontime) FROM radacct \
+#                WHERE username = '%{%k}' AND acctstarttime BETWEEN \
+#                FROM_UNIXTIME('%b') AND FROM_UNIXTIME('%e')"
+}
+
+}}}
+
+
+=== 限制每月流量 ===
+* 在 vim /usr/local/etc/raddb/sql/mysql/counter.conf   文件末尾添加如下字段 
+
+{{{
+sqlcounter monthlytrafficcounter {
+    counter-name = Monthly-Traffic
+    check-name = Max-Monthly-Traffic
+    reply-name = Monthly-Traffic-Limit
+    sqlmod-inst = sql
+    key = User-Name
+    reset = monthly
+    query = "SELECT SUM(acctinputoctets + acctoutputoctets) DIV 1024 FROM radacct WHERE UserName='%{%k}' AND UNIX_TIMESTAMP(AcctStartTime) > '%b'"
+}
+}}}
+
+* 启用流量统计
+
+在 /etc/raddb/sites-enabled/default 文件的 authorize 区块中，添加  monthlytrafficcounter ，在 字典文件 /etc/raddb/dictionary 末尾添加如下两行
+
+{{{
+ATTRIBUTE Max-Monthly-Traffic 3003 integer
+ATTRIBUTE Monthly-Traffic-Limit 3004 integer
+}}}
+
+1G字节 = 1073741824
+
+* 在数据库里面添加限制字段
+{{{
+INSERT INTO radgroupcheck (groupname,attribute,op,VALUE) VALUES ('user','Max-Monthly-Traffic',':=','1073741824');
+}}}
+
+添加到 radgroupcheck 表示针对所有组的生效
+
+由于 Max-Monthly-Traffic 3003 integer 整数型的最大长度为2G，如果限额超过2G,会导致认证失败，所以解决方法就是 对查询到的用户的流量，除以 1024，然后对用户的限额也除以1024，这样可以解决问题

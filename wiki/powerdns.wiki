@@ -1,0 +1,258 @@
+#summary 介绍 powerdns 结合 mysql 的安装配置方法
+
+= 介绍 =
+
+powerdns + mysql + webadmin 简单管理域名服务器
+
+= 系统环境 =
+
+centos 或者 debian
+
+=== 申请域名，并把域名解析权转移到自己的服务器上 ===
+申请域名服务器,推荐到 namecheap 申请,申请完成域名以后,需要把自己的域名转移到自己的dns服务器中,方法如下,折腾好namecheap 以后,开始自己搭建 dns server
+
+=== 安装mysql server 及必须的软件包 ===
+* debian
+{{{
+apt-get install mysql-server mysql-client  pdns-server pdns-backend-mysql 
+}}}
+* centos
+{{{
+yum install pdns-backend-mysql -y
+}}}
+
+=== 软件包安装完成以后,开始配置 ===
+ # mysql server 配置
+修改/etc/mysql/my.cnf 修改监听端口为 127.0.0.1 如下
+{{{
+[...]
+bind-address           = 127.0.0.1
+[...]
+}}}
+
+然后重启 mysql server
+
+ * 创建 powerdns 默认是数据库
+
+登陆mysql ,并创建数据库,命令如下
+{{{
+mysql -u root -p
+# 创建所需数据库
+CREATE DATABASE powerdns;
+# 为powerdns 数据库创建用户并指派权限, power_admin_password 为密码,可以自己修改
+GRANT ALL ON powerdns.* TO 'power_admin'@'localhost' IDENTIFIED BY 'power_admin_password';
+GRANT ALL ON powerdns.* TO 'power_admin'@'localhost.localdomain' IDENTIFIED BY 'power_admin_password';
+FLUSH PRIVILEGES;
+# 导入基本数据
+USE powerdns;
+# 创建基本的表
+CREATE TABLE domains (
+id INT auto_increment,
+name VARCHAR(255) NOT NULL,
+master VARCHAR(128) DEFAULT NULL,
+last_check INT DEFAULT NULL,
+type VARCHAR(6) NOT NULL,
+notified_serial INT DEFAULT NULL,
+account VARCHAR(40) DEFAULT NULL,
+primary key (id)
+);
+# 创建索引
+CREATE UNIQUE INDEX name_index ON domains(name);
+#
+CREATE TABLE records (
+id INT auto_increment,
+domain_id INT DEFAULT NULL,
+name VARCHAR(255) DEFAULT NULL,
+type VARCHAR(6) DEFAULT NULL,
+content VARCHAR(255) DEFAULT NULL,
+ttl INT DEFAULT NULL,
+prio INT DEFAULT NULL,
+change_date INT DEFAULT NULL,
+primary key(id)
+);
+#
+CREATE INDEX rec_name_index ON records(name);
+CREATE INDEX nametype_index ON records(name,type);
+CREATE INDEX domain_id ON records(domain_id);
+#
+CREATE TABLE supermasters (
+ip VARCHAR(25) NOT NULL,
+nameserver VARCHAR(255) NOT NULL,
+account VARCHAR(40) DEFAULT NULL
+);
+# 退出
+quit
+}}}
+
+ * 编辑powerdns 配置文件 {{{ /etc/powerdns/pdns.conf }}},使其使用mysql 数据库,找到如下字段,修改如下, recursor 表示如果查询的域名不在本机上,则向上级域名服务器查询,查询的地址为 192.168.1.254
+
+{{{
+[...]
+
+# 注释如下行
+#################################
+# allow-recursion	List of netmasks that are allowed to recurse
+allow-recursion
+#allow-recursion
+
+#################################
+# launch        Which backends to launch and order to query them in
+#
+# launch=
+launch=gmysql
+[...]
+
+#################################
+# recursor      If recursion is desired, IP address of a recursing nameserver
+#
+recursor=192.168.1.254
+
+#################################
+
+}}}
+
+== debian 需要如下步骤 ==
+
+修改如下文件
+{{{
+vim /etc/powerdns/pdns.d/pdns.local
+}}}
+修改成如下
+{{{
+# Here comes the local changes the user made, like configuration of
+# the several backends that exists.
+
+gmysql-host=127.0.0.1
+gmysql-user=power_admin
+gmysql-password=power_admin_password
+gmysql-dbname=powerdns
+}}}
+
+== centos 需要如下步骤 ==
+
+centos 的系统，不需要创建 pdns.local 文件，直接把上面的几句话，添加到 pdns.conf 文件的末尾，如下
+{{{
+gmysql-host=127.0.0.1
+gmysql-user=power_admin
+gmysql-password=power_admin_password
+gmysql-dbname=powerdns
+}}}
+
+然后重启 powernds 服务
+{{{
+/etc/init.d/pdns restart
+}}}
+到此步骤,powernds 安装设定完毕
+
+== 检查安装是否成功 ==
+打开日志文件 tail /var/log/messages，内容应该如下
+{{{
+Jan 10 15:59:43 ip-10-150-167-111 pdns[29860]: TCP server bound to 0.0.0.0:53
+Jan 10 15:59:43 ip-10-150-167-111 pdns[29860]: PowerDNS 2.9.22 (C) 2001-2009 PowerDNS.COM BV (Dec 14 2010, 18:18:42, gcc 4.4.4 20100726 (Red Hat 4.4.4-13)) starting up
+Jan 10 15:59:43 ip-10-150-167-111 pdns[29860]: PowerDNS comes with ABSOLUTELY NO WARRANTY. This is free software, \
+and you are welcome to redistribute it according to the terms of the GPL version 2.
+Jan 10 15:59:43 ip-10-150-167-111 pdns[29860]: Creating backend connection for TCP
+Jan 10 15:59:43 ip-10-150-167-111 pdns[29860]: gmysql Connection succesful
+Jan 10 15:59:43 ip-10-150-167-111 pdns[29860]: About to create 3 backend threads for UDP
+Jan 10 15:59:43 ip-10-150-167-111 pdns[29860]: gmysql Connection succesful
+Jan 10 15:59:43 ip-10-150-167-111 pdns[29860]: gmysql Connection succesful
+Jan 10 15:59:43 ip-10-150-167-111 pdns[29860]: gmysql Connection succesful
+Jan 10 15:59:43 ip-10-150-167-111 pdns[29860]: Done launching threads, ready to distribute questions
+}}}
+
+
+== 安装 powerdns admin ==
+
+ 基于web的管理方式,很好用
+
+{{{
+apt-get install apache2 libapache2-mod-php5 php5 php5-common\
+ php5-curl php5-dev php5-gd php-pear php5-imap php5-mcrypt\
+ php5-mhash php5-ming php5-mysql php5-xmlrpc gettext
+}}}
+如果提示如下,选 yes
+{{{
+Continue installing libc-client without Maildir support? <-- Yes
+}}}
+
+== debian 系统 ==
+安装完成基本包以后,安装如下
+{{{
+pear install DB
+pear install pear/MDB2#mysql
+}}}
+
+== centos 系统 ==
+{{{
+yum install php-pear-DB php-pear-MDB2 php-pear-MDB2-Driver-mysqli php-pear-MDB2-Driver-mysql
+}}}
+
+php包安装完成以后,下载 powerdns admin  软件包,并配置
+其官方网站为
+[https://www.poweradmin.org/trac/wiki/GettingPoweradmin  https://www.poweradmin.org/trac/wiki/GettingPoweradmin]
+下载开始安装,最新的为 2.1.5
+{{{
+cd /tmp
+wget https://www.poweradmin.org/download/poweradmin-2.1.5.tgz
+tar xvfz poweradmin-2.1.5.tgz
+mkdir -p /var/www/poweradmin
+mv poweradmin-2.1.5/* /var/www/poweradmin
+touch /var/www/poweradmin/inc/config.inc.php
+chown -R www-data:www-data /var/www/poweradmin/
+}}}
+
+安装完成以后,打开浏览器 如  (http://server1.example.com/poweradmin/install or http://192.168.0.100/poweradmin/install).
+
+[http://static.howtoforge.com/images/powerdns_debian_etch/1.png]
+
+继续下一步
+
+[http://static.howtoforge.com/images/powerdns_debian_etch/2.png]
+
+继续,输入* mysql 的root 密码,非 刚才创建的 powerdns 用户的密码 ,这里注意哦*
+
+[http://static.howtoforge.com/images/powerdns_debian_etch/3.png]
+
+继续,这里输入power_admin 密码,也就是创建的 powerdns 的数据库密码,主机名就是你的主机名字,nameserver 就是你刚才在namecheap 注册的dns 名字,一般自己写个就可以了
+
+[http://static.howtoforge.com/images/powerdns_debian_etch/4.png]
+
+接着下一步
+
+[http://static.howtoforge.com/images/powerdns_debian_etch/5.png]
+
+继续
+
+[http://static.howtoforge.com/images/powerdns_debian_etch/6.png]
+
+继续,默认即可
+
+[http://static.howtoforge.com/images/powerdns_debian_etch/7.png]
+
+系统为了安装期间,安装完成以后,需要删除 install 目录
+
+{{{
+rm -fr /var/www/poweradmin/install/
+}}}
+
+到这里,web管理页面安装完成,输入 http://server1.example.com/poweradmin or http://192.168.0.100/poweradmin 看看吧
+
+[http://static.howtoforge.com/images/powerdns_debian_etch/8.png]
+
+[http://static.howtoforge.com/images/powerdns_debian_etch/9.png]
+
+创建 zone, go to Add master zone and fill in the domain name (e.g. example.com). You can already fill in the IP addresses for the www A record ("webserver") and the MX record ("mailserver") for that zone. If you leave the Create zone without applying records-template checkbox unchecked, Poweradmin will automatically create some NS, A (e.g. www) and MX records for that zone:
+
+
+[http://static.howtoforge.com/images/powerdns_debian_etch/10.png]
+[http://static.howtoforge.com/images/powerdns_debian_etch/11.png]
+[http://static.howtoforge.com/images/powerdns_debian_etch/12.png]
+[http://static.howtoforge.com/images/powerdns_debian_etch/13.png]
+[http://static.howtoforge.com/images/powerdns_debian_etch/14.png]
+[http://static.howtoforge.com/images/powerdns_debian_etch/15.png]
+[http://static.howtoforge.com/images/powerdns_debian_etch/16.png]
+[http://static.howtoforge.com/images/powerdns_debian_etch/17.png]
+[http://static.howtoforge.com/images/powerdns_debian_etch/18.png]
+[http://static.howtoforge.com/images/powerdns_debian_etch/19.png]
+[http://static.howtoforge.com/images/powerdns_debian_etch/20.png]
+[http://static.howtoforge.com/images/powerdns_debian_etch/21.png]

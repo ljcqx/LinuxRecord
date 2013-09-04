@@ -1,0 +1,62 @@
+#summary munin的快速配置与使用
+
+= 系统环境 =
+
+centos 5 64
+
+
+= 安装步骤 =
+
+* 添加两个外部的源,一个是epel,一个是rpmforge 
+
+地址分别是
+{{{
+rpm -ivh http://download.fedora.redhat.com/pub/epel/5/x86_64/epel-release-5-4.noarch.rpm
+rpm -ihv http://apt.sw.be/redhat/el5/en/x86_64/rpmforge/RPMS/rpmforge-release-0.5.2-2.el5.rf.x86_64.rpm
+}}}
+
+* 安装完成以后，可以开始安装 munin
+
+munin 包括两部分，一个是master，就是主控端，一个是node，也就是监控的节点
+如果有多个节点需要监控，只用在节点安装 munin-node，master 安装 munin 即可，所有的数据，node会发送到master，还是master主动获取node，我还没有弄清楚，反正在master上面配置好node的ip信息以后，就可以在master上面查看节点的信息，应该是master主动去抓取node的数据
+
+# 先安装被监控的节点，也就是node
+{{{
+yum install munin-node -y
+}}}
+
+安装完成以后，进行配置，配置文件为  /etc/munin/munin-node.conf  添加上master的ip地址，添加字段为如下，添加地方为 {{{ allow ^127\.0\.0\.1$ }}} 的后面
+{{{
+allow ^124\.232\.156\.224$
+}}}
+添加完成以后，启动 munin-node 服务
+{{{
+/etc/init.d/munin-node start
+}}}
+
+如果有多个节点，依次安装即可
+
+# master 的安装
+{{{
+yum install munin -y
+}}}
+
+安装完成以后，  /etc/munin/munin.conf   配置一下，讲如下几行注释去掉，变成如下模样
+{{{
+dbdir /var/lib/munin
+htmldir /var/www/html/munin
+logdir /var/log/munin
+rundir  /var/run/munin
+}}}
+
+并添加如下客户端的信息，内容如下,如果有多个node，加入多个node的相关信息即可
+{{{
+[node-1]
+    address 175.41.1.1
+    use_node_name yes
+}}}
+文件修改完成以后，运行 munin-check 重新生成索引文件
+
+搞定以后，打开master 的httpd，打开地址  http://maser.ip/munin 就可以看到被监控节点的信息了
+
+如果node上面，监控的信息，很多用不上，解决的方法，就是进入到node的 /etc/munin/plugins  目录下面，删除不需要的文件即可，然后重新运行  munin-check 重新生成索引文件

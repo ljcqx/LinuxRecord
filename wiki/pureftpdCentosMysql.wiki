@@ -1,0 +1,128 @@
+#summary pureftp mysql centos 5 支持限额,流量限制的配置方法.
+
+= Introduction =
+
+支持mysql虚拟账号,支持限额,支持限速
+
+
+==1. 安装==
+
+{{{
+yum install pure-ftpd -y
+}}}
+
+==2.配置==
+
+  * 创建一个系统账号,这个账号对应ftp登陆者,账号为 ftpuser,组为 ftpgroup, id 为 2010
+
+{{{
+groupadd -g 2010 ftpgroup
+useradd -u 2010 -s /bin/false -d /liuxun/null -c "proftpd user" -g ftpgroup -r ftpuser
+}}}
+
+  * 创建 pureftpd 的mysql 使用账号,并创建用户数据库和表
+
+创建账号
+{{{
+mysql > grant select,insert,update,delete,create,drop,index,alter,create temporary tables,lock tables on pureftpd.*  to 'pureftpd'@'127.0.0.1' Identified by "123456";
+}}}
+
+创建数据库和表
+{{{
+mysql > create database pureftpd;
+mysql > use pureftpd;
+mysql > CREATE TABLE users (
+user varchar(30) NOT NULL,
+password varchar(64) NOT NULL,
+home varchar(128) NOT NULL,
+bandwidth_limit_upload smallint(5) NOT NULL default 0,
+bandwidth_limit_download smallint(5) NOT NULL default 0,
+ip_allow varchar(15) NOT NULL default 'any',
+quota smallint(5) NOT NULL default '0',
+quota_files int(11) NOT NULL default 0,
+active enum('yes','no') NOT NULL default 'yes',
+PRIMARY KEY (user),
+UNIQUE KEY User (user)
+) TYPE=MyISAM;
+}}}
+
+  * 修改默认的mysql连接文件
+
+{{{
+mv /etc/pure-ftpd/pureftpd-mysql.conf /etc/pure-ftpd/pureftpd-mysql.conf.bak
+cat > /etc/pure-ftpd/pureftpd-mysql.conf <<EOF
+MYSQLServer 127.0.0.1
+MYSQLPort 3306
+MYSQLUser pureftpd
+MYSQLPassword 123456
+MYSQLDatabase pureftpd
+MYSQLCrypt md5
+MYSQLDefaultUID 2010
+MYSQLDefaultGID 2010
+MYSQLGetPW SELECT password FROM users WHERE user = "\L" AND active = "yes" AND (ip_allow = "any" OR ip_allow LIKE "\R")
+MYSQLGetDir SELECT home FROM users WHERE user = "\L" AND active = "yes" AND (ip_allow = "any" OR ip_allow LIKE "\R")
+MySQLGetBandwidthUL SELECT bandwidth_limit_upload FROM users WHERE user = "\L"AND active = "yes" AND (ip_allow = "any" OR ip_allow LIKE "\R")
+MySQLGetBandwidthDL SELECT bandwidth_limit_download FROM users WHERE user = "\L"AND active = "yes" AND (ip_allow = "any" OR ip_allow LIKE "\R")
+MySQLGetQTASZ SELECT quota FROM users WHERE user = "\L"AND active = "yes" AND (ip_allow = "any" OR ip_allow LIKE "\R")
+MySQLGetQTAFS SELECT quota_files FROM users WHERE user = "\L"AND active = "yes" AND (ip_allow = "any" OR ip_allow LIKE "\R")
+EOF
+}}}
+
+  * 修改 pureftpd 的配置文件
+
+{{{
+mv /etc/pure-ftpd/pure-ftpd.conf /etc/pure-ftpd/pure-ftpd.conf.bak
+cat >/etc/pure-ftpd/pure-ftpd.conf <<EOF
+ChrootEveryone              yes
+BrokenClientsCompatibility  no
+MaxClientsNumber            50
+Daemonize                   yes
+MaxClientsPerIP             8
+VerboseLog                  no
+DisplayDotFiles             no
+AnonymousOnly               no
+NoAnonymous                 no
+SyslogFacility              ftp
+DontResolve                 yes
+MaxIdleTime                 15
+MySQLConfigFile               /etc/pure-ftpd/pureftpd-mysql.conf
+LimitRecursion              10000 8
+AnonymousCanCreateDirs      no
+MaxLoad                     4
+# PassivePortRange          30000 50000
+# ForcePassiveIP                192.168.0.1
+AntiWarez                   yes
+# Bind                      127.0.0.1,21
+Umask                       133:022
+MinUID                      500
+UseFtpUsers no
+AllowUserFXP                no
+AllowAnonymousFXP           no
+ProhibitDotFilesWrite       no
+ProhibitDotFilesRead        no
+AutoRename                  no
+AnonymousCantUpload         yes
+LogPID                     yes
+AltLog                     clf:/var/log/pureftpd.log
+NoChmod                     yes
+KeepAllFiles                yes
+CreateHomeDir               yes
+MaxDiskUsage               99
+CustomerProof              yes
+EOF
+}}}
+
+备注: {{{KeepAllFiles    yes}}} 表示不能删除权限,就是说上传后不能删除,修改为 no 以后,就可以删除
+
+==3.启动 pureftpd ,可以开始测试了==
+
+{{{
+/etc/init.d/pure-ftpd start
+}}}
+
+  * 添加一个新用户
+
+{{{
+mysql > use pureftpd;
+mysql> INSERT INTO users (user, password, home) VALUES ('abc', MD5('123'), '/home/abc');
+}}}
